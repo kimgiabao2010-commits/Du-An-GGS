@@ -1,0 +1,163 @@
+/*!*********************************************************************************************************************************************************************************************************************************************************************!*\
+  !*** css ../../node_modules/next/dist/build/webpack/loaders/css-loader/src/index.js??ruleSet[1].rules[14].oneOf[12].use[2]!../../node_modules/next/dist/build/webpack/loaders/postcss-loader/src/index.js??ruleSet[1].rules[14].oneOf[12].use[3]!./app/globals.css ***!
+  \*********************************************************************************************************************************************************************************************************************************************************************/
+:root {
+  /* Apple Pro Black & White (Titanium/Graphite Vibe) */
+  --bg-deep: #000000;
+  --bg-surface: rgba(255, 255, 255, 0.05);
+  
+  --accent-neon: #FFFFFF; /* Pure White Accent */
+  --accent-glow: rgba(255, 255, 255, 0.3);
+  --accent-gradient: linear-gradient(135deg, #ffffff 0%, #a0a0a0 100%);
+  
+  --color-success: #32d74b; 
+  --color-danger: #ff453a; 
+  --color-warning: #ff9f0a; 
+  
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.65);
+  --text-muted: rgba(255, 255, 255, 0.4);
+  
+  --chat-user-bg: #0A84FF; /* iMessage Blue */
+  --chat-ai-bg: rgba(40, 40, 42, 0.85); /* Apple Dark Gray */
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-deep);
+  color: var(--text-primary);
+  /* Trái tim thiết kế Apple SF Pro / San Francisco */
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  
+  /* Solid sleek matte black / Titanium Pro vibe */
+  background-image: 
+    radial-gradient(ellipse at 50% -20%, rgba(255,255,255,0.06), transparent 80%),
+    radial-gradient(ellipse at 50% 120%, rgba(255,255,255,0.04), transparent 80%);
+  
+  background-attachment: fixed;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* APPLE VISION OS PANEL */
+.vision-panel {
+  background: rgba(28, 28, 30, 0.5);
+  -webkit-backdrop-filter: blur(60px) saturate(200%);
+  backdrop-filter: blur(60px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24px;
+  box-shadow: 
+    0 24px 48px rgba(0, 0, 0, 0.2), 
+    inset 0 1px 1px rgba(255, 255, 255, 0.15);
+  transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.vision-panel:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 
+    0 32px 64px rgba(0, 0, 0, 0.3), 
+    inset 0 1px 1px rgba(255, 255, 255, 0.2);
+}
+
+/* MAC OS WINDOW (Dành cho khung Chat/SIEM bọc viền) */
+.mac-window {
+  background: rgba(30, 30, 30, 0.65);
+  -webkit-backdrop-filter: blur(40px);
+  backdrop-filter: blur(40px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+/* Nav Button (Apple Style Pill) */
+.nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 20px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid transparent;
+  color: #fff;
+  font-weight: 500;
+  border-radius: 14px; /* Pill-like */
+  text-decoration: none;
+  font-size: 0.95rem;
+  transition: all 0.2s ease;
+}
+
+.nav-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: scale(1.02);
+}
+
+.nav-btn:active {
+  transform: scale(0.98);
+}
+
+/* Scrollbar styling (macOS Hidden Scrollbar vibe) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  border: 2px solid rgba(0,0,0,0);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Typography styles */
+.text-neon {
+  color: var(--accent-neon);
+  text-shadow: 0 0 12px var(--accent-glow);
+}
+
+.text-danger {
+  color: var(--color-danger);
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.text-gradient {
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Custom Scrollbar */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+

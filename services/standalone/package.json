@@ -1,0 +1,14 @@
+{
+  "name": "@asq/standalone",
+  "version": "4.0.0",
+  "description": "ASQ-Engine Macroscopic Standalone Command Center",
+  "type": "module",
+  "main": "src/command-center.ts",
+  "scripts": {
+    "start": "ts-node src/command-center.ts"
+  },
+  "dependencies": {
+    "@asq/sdk": "*",
+    "@asq/guardrails": "*"
+  }
+}

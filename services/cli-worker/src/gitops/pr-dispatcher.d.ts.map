@@ -1,0 +1,1 @@
+{"version":3,"file":"pr-dispatcher.d.ts","sourceRoot":"","sources":["pr-dispatcher.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,yBAAyB,EAAE,MAAM,UAAU,CAAC;AAGrD,qBAAa,YAAY;IACrB,OAAO,CAAC,MAAM,CAAyB;;IAM1B,eAAe,CAAC,SAAS,EAAE,MAAM,GAAG,OAAO,CAAC,yBAAyB,CAAC;CAsBtF"}

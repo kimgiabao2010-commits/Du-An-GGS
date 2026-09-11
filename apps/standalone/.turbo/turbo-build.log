@@ -1,0 +1,33 @@
+
+> asq-standalone@1.0.0 build
+> next build
+
+  ▲ Next.js 14.2.35
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/7) ...
+   Generating static pages (1/7) 
+   Generating static pages (3/7) 
+   Generating static pages (5/7) 
+ ✓ Generating static pages (7/7)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+┌ ○ /                                    3.18 kB        99.2 kB
+├ ○ /_not-found                          873 B          88.2 kB
+├ ƒ /api/auth                            0 B                0 B
+├ ○ /api/grafana/proxy                   0 B                0 B
+└ ○ /siem                                122 kB          218 kB
++ First Load JS shared by all            87.3 kB
+  ├ chunks/1dd3208c-d6804214a02e0ca9.js  53.6 kB
+  ├ chunks/528-4c010fb21bde0d4d.js       31.7 kB
+  └ other shared chunks (total)          1.96 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

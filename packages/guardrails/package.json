@@ -1,0 +1,11 @@
+{
+  "name": "@asq/guardrails",
+  "version": "4.0.0",
+  "description": "Zero Trust Security & AI Safety Guardrails for ASQ-Engine",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@asq/sdk": "*"
+  }
+}

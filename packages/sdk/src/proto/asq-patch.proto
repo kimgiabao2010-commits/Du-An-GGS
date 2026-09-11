@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package asq;
+
+service ASQPatchService {
+  rpc SubmitPatch (PatchRequest) returns (PatchResponse) {}
+}
+
+message PatchRequest {
+  string rule_id = 1;
+  string target_file = 2;
+  bytes ast_diff_payload = 3;
+  string timestamp = 4;
+}
+
+message PatchResponse {
+  bool success = 1;
+  string message = 2;
+  string patch_hash = 3;
+}

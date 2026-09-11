@@ -1,0 +1,33 @@
+{
+  "name": "asq-engine",
+  "version": "4.0.0",
+  "description": "Autonomous SecOps Platform (Quartet Closed-Loop Architecture V4)",
+  "private": true,
+  "packageManager": "npm@11.11.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "test": "node --loader ts-node/esm tests/e2e/test_closed_loop.ts",
+    "start:standalone": "node --loader ts-node/esm services/standalone/src/command-center.ts",
+    "start:worker": "node --loader ts-node/esm services/cli-worker/src/worker.ts",
+    "start:ide": "node --loader ts-node/esm services/ide-reasoning/src/engine.ts",
+    "e2e": "tsx tests/e2e/test_closed_loop.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.19.2",
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@google/genai": "^2.21.0",
+    "dotenv": "^17.4.2",
+    "openai": "^7.10.0"
+  }
+}

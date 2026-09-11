@@ -1,0 +1,1 @@
+{"version":3,"file":"progressive-controller.d.ts","sourceRoot":"","sources":["progressive-controller.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,iBAAiB,EAAE,MAAM,+BAA+B,CAAC;AAGlE,qBAAa,6BAA6B;IACtC,OAAO,CAAC,WAAW,CAAsB;;IAM5B,oBAAoB,CAAC,WAAW,EAAE,iBAAiB,EAAE,YAAY,EAAE,MAAM,GAAG,OAAO,CAAC,MAAM,CAAC;IA+BxG,OAAO,CAAC,gBAAgB;CAQ3B"}

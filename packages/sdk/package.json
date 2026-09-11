@@ -1,0 +1,23 @@
+{
+  "name": "@asq/sdk",
+  "version": "4.0.0",
+  "description": "ASQ-Engine Integration Layer & Cryptographic Fabric",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.11.1",
+    "@grpc/proto-loader": "^0.7.13",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.12",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

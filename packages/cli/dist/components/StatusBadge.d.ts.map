@@ -1,0 +1,1 @@
+{"version":3,"file":"StatusBadge.d.ts","sourceRoot":"","sources":["../../src/components/StatusBadge.tsx"],"names":[],"mappings":"AAAA,OAAO,KAAK,MAAM,OAAO,CAAC;AAG1B,eAAO,MAAM,WAAW,GAAI,mBAAmB;IAAE,MAAM,EAAE,IAAI,GAAG,SAAS,GAAG,UAAU,GAAG,MAAM,CAAC;IAAC,KAAK,EAAE,MAAM,CAAA;CAAE,sBAa/G,CAAC"}

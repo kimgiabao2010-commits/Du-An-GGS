@@ -1,0 +1,13 @@
+{
+  "name": "@asq/cli-worker",
+  "version": "4.0.0",
+  "description": "ASQ-Engine CLI Worker Sandbox",
+  "type": "module",
+  "main": "src/worker.ts",
+  "scripts": {
+    "start": "ts-node src/worker.ts"
+  },
+  "dependencies": {
+    "@asq/sdk": "*"
+  }
+}

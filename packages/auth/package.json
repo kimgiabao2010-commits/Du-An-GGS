@@ -1,0 +1,23 @@
+{
+  "name": "@asq/auth",
+  "version": "4.0.0",
+  "description": "ASQ-Engine Authentication & Security Layer",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "jose": "^5.2.3",
+    "otpauth": "^9.2.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.0.0",
+    "express": "^4.19.2",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

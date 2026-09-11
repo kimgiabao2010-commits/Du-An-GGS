@@ -1,0 +1,1 @@
+{"version":3,"file":"patch-generator.d.ts","sourceRoot":"","sources":["patch-generator.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,mBAAmB,EAAE,MAAM,UAAU,CAAC;AAC/C,OAAO,EAAE,SAAS,EAAE,MAAM,sBAAsB,CAAC;AAEjD,qBAAa,cAAc;IACvB;;OAEG;IACI,mBAAmB,CAAC,MAAM,EAAE,SAAS,GAAG,mBAAmB;CA+BrE"}

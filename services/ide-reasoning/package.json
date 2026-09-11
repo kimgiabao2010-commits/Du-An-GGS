@@ -1,0 +1,14 @@
+{
+  "name": "@asq/ide-reasoning",
+  "version": "4.0.0",
+  "description": "ASQ-Engine Semantic & AST Reasoning Master",
+  "type": "module",
+  "main": "src/engine.ts",
+  "scripts": {
+    "start": "ts-node src/engine.ts"
+  },
+  "dependencies": {
+    "@asq/sdk": "*",
+    "@asq/guardrails": "*"
+  }
+}
