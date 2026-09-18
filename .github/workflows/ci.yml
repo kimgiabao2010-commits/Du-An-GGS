@@ -1,29 +1,18 @@
-name: ASQ-Engine CI Pipeline
-
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-
+name: ASQ verification
+on: [push, pull_request]
 jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
+  verify:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Run Build (Turborepo)
-        run: npx turbo run build
-
-      - name: Run Tests (Turborepo)
-        run: npx turbo run test
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test

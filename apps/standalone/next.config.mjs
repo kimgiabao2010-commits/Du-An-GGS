@@ -1,7 +1,13 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = {
-  reactStrictMode: true,
-  transpilePackages: ['@asq/sdk', '@asq/auth'],
-};
-
-export default nextConfig;
+export default function config(phase) {
+  return {
+    reactStrictMode: true,
+    pageExtensions: ['ts', 'tsx'],
+    transpilePackages: ['@asq/sdk', '@asq/auth'],
+    distDir: phase === 'phase-development-server' ? '.next' : '.next-production',
+    webpack(config) {
+      config.resolve.extensions = ['.tsx', '.ts', ...config.resolve.extensions.filter(ext => ext !== '.tsx' && ext !== '.ts')];
+      return config;
+    }
+  };
+}

@@ -6,8 +6,16 @@
     "declaration": true,
     "moduleResolution": "NodeNext",
     "esModuleInterop": true,
-    "jsx": "react"
+    "jsx": "react",
+    "noEmit": false,
+    "allowImportingTsExtensions": false
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "tests"]
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests"
+  ]
 }

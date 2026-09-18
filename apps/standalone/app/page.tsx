@@ -46,7 +46,7 @@ export default function StandaloneDashboard() {
                       <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>Tư Lệnh ASQ</div>
                       <div style={{ fontSize: '0.8rem', color: 'var(--color-success)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <span style={{ width: '6px', height: '6px', background: 'var(--color-success)', borderRadius: '50%', display: 'inline-block', boxShadow: '0 0 8px var(--color-success)' }}></span> 
-                          System Online
+                          Local prototype
                       </div>
                   </div>
               </div>

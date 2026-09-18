@@ -9,6 +9,7 @@ import { BlastRadiusModule } from './modules/blast-radius.js';
 export interface ASQClientOptions {
   wsUrl?: string;
   grpcUrl?: string;
+  grpcMode?: 'live' | 'mock';
   grafanaUrl?: string;
   token: string;
   grafanaToken?: string;
@@ -26,7 +27,7 @@ export class ASQClient {
 
   constructor(options: ASQClientOptions) {
     this.ws = new ASQWebSocketClient(options.wsUrl || 'ws://localhost:4000', options.token);
-    this.grpc = new ASQgRPCClient(options.grpcUrl || 'localhost:50051');
+    this.grpc = new ASQgRPCClient(options.grpcUrl || 'localhost:50051', options.grpcMode);
 
     this.rule = new RuleSyncModule(this.ws);
     this.grafana = new GrafanaSyncModule(options.grafanaUrl || 'http://localhost:3000', options.grafanaToken || '');
@@ -42,5 +43,6 @@ export class ASQClient {
 
   public disconnect(): void {
     this.ws.disconnect();
+    this.grpc.disconnect();
   }
 }

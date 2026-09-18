@@ -6,7 +6,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node ../../scripts/copy-sdk-proto.mjs",
     "test": "vitest run"
   },
   "dependencies": {

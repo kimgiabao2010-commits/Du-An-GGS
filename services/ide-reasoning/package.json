@@ -5,7 +5,8 @@
   "type": "module",
   "main": "src/engine.ts",
   "scripts": {
-    "start": "ts-node src/engine.ts"
+    "start": "ts-node src/engine.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@asq/sdk": "*",

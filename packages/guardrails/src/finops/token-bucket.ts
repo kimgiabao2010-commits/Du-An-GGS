@@ -1,4 +1,4 @@
-export type ModelTier = 'Gemini Pro' | 'Gemini Flash' | 'Gemini Flash-Lite';
+export type ModelTier = 'gpt-6-astra' | 'gpt-5.6-terra' | 'gpt-5.6-luna';
 
 export class FinOpsGuardrail {
     // Layer 1: Token Bucket (Tốc độ tức thời RPM/TPM)
@@ -42,18 +42,19 @@ export class FinOpsGuardrail {
      * Cơ chế Auto-Fallback quyết định model phù hợp nhằm cứu ngân sách
      */
     public suggestModelTier(): ModelTier {
+        this.refillRPM();
         this.checkBudgetCycle();
         const budgetUsedRatio = this.consumedIn5Hours / this.fiveHourBudget;
         
         // Nếu dùng hơn 90% budget hoặc bị rate limit nghiêm trọng (TPM thấp)
         if (budgetUsedRatio >= 0.90 || this.rpmTokens < 10) {
-            return 'Gemini Flash-Lite';
+            return 'gpt-5.6-luna';
         }
         // Nếu dùng hơn 70% budget hoặc có nguy cơ hết RPM
         if (budgetUsedRatio >= 0.70 || this.rpmTokens < 30) {
-            return 'Gemini Flash';
+            return 'gpt-5.6-terra';
         }
-        return 'Gemini Pro';
+        return 'gpt-6-astra';
     }
 
     /**
@@ -61,6 +62,7 @@ export class FinOpsGuardrail {
      * @returns Nếu True -> cho đi tiếp, nếu False -> block thẳng tay chặn nghẽn.
      */
     public consume(amount: number = 1): boolean {
+        if (!Number.isFinite(amount) || amount <= 0) return false;
         this.refillRPM();
         this.checkBudgetCycle();
 

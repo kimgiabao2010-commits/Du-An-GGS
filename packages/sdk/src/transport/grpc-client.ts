@@ -1,16 +1,27 @@
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
-import { resolve } from 'path';
+import { fileURLToPath } from 'node:url';
 
 // Load gRPC definition dynamically for large payloads
 export class ASQgRPCClient {
   private client: grpc.Client | null = null;
 
-  constructor(private host: string) {}
+  constructor(
+    private host: string,
+    private mode: 'live' | 'mock' = 'live'
+  ) {}
 
   public connect(): void {
-    const PROTO_PATH = resolve(__dirname, '../proto/asq-patch.proto');
-    // Using try-catch to allow tests to run without the exact file path resolved locally
+    if (this.mode === 'mock') {
+      if (process.env.NODE_ENV === 'production') throw new Error('Mock gRPC is forbidden in production');
+      this.client = { mock: true } as unknown as grpc.Client;
+      return;
+    }
+
+    const PROTO_PATH = fileURLToPath(new URL('../proto/asq-patch.proto', import.meta.url));
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Production gRPC requires an mTLS adapter; insecure transport is disabled');
+    }
     try {
         const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
             keepCase: true,
@@ -28,9 +39,8 @@ export class ASQgRPCClient {
                 grpc.credentials.createInsecure() 
             );
         }
-    } catch(e) {
-        // Fallback for mocked environment
-        this.client = { mock: true } as unknown as grpc.Client;
+    } catch (error) {
+        throw new Error(`Unable to initialize ASQ gRPC client: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -48,10 +58,15 @@ export class ASQgRPCClient {
     };
 
     return new Promise((resolve, reject) => {
-      (this.client as any).SubmitPatch(request, (error: any, response: any) => {
+      (this.client as any).SubmitPatch(request, { deadline: Date.now() + 10000 }, (error: any, response: any) => {
         if (error) reject(error);
         else resolve(response);
       });
     });
+  }
+
+  public disconnect(): void {
+    if (this.client && !(this.client as any).mock) this.client.close();
+    this.client = null;
   }
 }

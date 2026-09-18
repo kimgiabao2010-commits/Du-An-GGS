@@ -33,6 +33,7 @@ export default function SiemDashboard() {
 
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
            
+           <p role="note" style={{ color: '#ffb74d' }}>DEMO: biểu đồ, DEFCON và inbox bên dưới dùng dữ liệu mô phỏng, không phải telemetry SIEM. Chỉ các panel trạng thái nhận phản hồi backend.</p>
            <ChartsGroup />
 
            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginTop: '24px' }}>

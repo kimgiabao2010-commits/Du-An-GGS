@@ -5,6 +5,21 @@ import React, { useState, useEffect, useRef } from 'react';
 export default function OrchestratorPrompt() {
     const [messages, setMessages] = useState<{ id: number, source: string, text: string, timestamp: string }[]>([]);
     const [inputValue, setInputValue] = useState('');
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [loginStatus, setLoginStatus] = useState('');
+    const [sessionVersion, setSessionVersion] = useState(0);
+
+    const login = async () => {
+        try {
+            const response = await fetch('/api/auth', { method: 'POST',
+                headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
+            const body = await response.json();
+            setPassword('');
+            setLoginStatus(response.ok ? 'Đã đăng nhập' : body.error);
+            if (response.ok) setSessionVersion(v => v + 1);
+        } catch { setLoginStatus('Không kết nối được máy chủ đăng nhập.'); }
+    };
     const ws = useRef<WebSocket | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -31,14 +46,14 @@ export default function OrchestratorPrompt() {
         ws.current = new WebSocket('ws://localhost:4000');
 
         ws.current.onopen = () => {
-            ws.current?.send(JSON.stringify({ type: 'register_agent', agentId: 'web-dashboard' }));
+            setLoginStatus('Đã kết nối Command Center');
         };
 
         ws.current.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                if (data.type === 'ui_flash' || data.type === 'agent_report') {
-                    addMessage(data.source, data.message);
+                if (data.type === 'STATUS' && data.payload?.action === 'ui_flash') {
+                    addMessage(data.payload.source, data.payload.message);
                 }
             } catch (e) {
                 console.error("Lỗi tin nhắn:", e);
@@ -54,7 +69,7 @@ export default function OrchestratorPrompt() {
                 ws.current.close();
             }
         };
-    }, []);
+    }, [sessionVersion]);
 
     const addMessage = (source: string, text: string) => {
         setMessages(prev => [...prev, {
@@ -73,8 +88,8 @@ export default function OrchestratorPrompt() {
 
         if (ws.current && ws.current.readyState === WebSocket.OPEN) {
             ws.current.send(JSON.stringify({
-                type: 'commander_prompt',
-                content: cmd
+                message_id: crypto.randomUUID(), incident_id: crypto.randomUUID(), timestamp: Date.now(),
+                type: 'COMMAND', payload: { action: 'commander_prompt', content: cmd }
             }));
         }
 
@@ -85,6 +100,12 @@ export default function OrchestratorPrompt() {
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', maxWidth: '900px', margin: '0 auto' }}>
             
             {/* Vùng Lịch Sử Chat (Flex 1 để đẩy xuống đáy) */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: 12 }}>
+                <input aria-label="Tên đăng nhập" placeholder="Tên đăng nhập" value={username} onChange={e => setUsername(e.target.value)} />
+                <input aria-label="Mật khẩu" type="password" placeholder="Mật khẩu" value={password} onChange={e => setPassword(e.target.value)} />
+                <button onClick={login}>Đăng nhập điều khiển</button>
+                <span role="status">{loginStatus}</span>
+            </div>
             <div className="hide-scrollbar" style={{ 
                 flex: 1, 
                 overflowY: 'auto', 

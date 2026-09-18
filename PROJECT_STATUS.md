@@ -1,5 +1,7 @@
 # TRẠNG THÁI HIỆN TẠI VÀ LỘ TRÌNH DỰ ÁN: ASQ-ENGINE
 
+> Cập nhật 2026-09-18: trạng thái kiểm chứng hiện hành nằm tại [PROJECT_TRUTH.md](PROJECT_TRUTH.md), [review kiến trúc/bảo mật Codex](CODEX_ASTRA_SECURITY_REVIEW.md) và [runbook local](CODEX_LOCAL_RUNBOOK.md). Các tuyên bố hoàn tất/PASS hoặc hạn chế build/test bên dưới thuộc thời điểm tài liệu được viết; không phải chứng nhận production hiện tại.
+
 Tài liệu này ghi nhận quá trình tái cấu trúc giao diện, kết nối các mạch điều khiển (Central Command) và các bộ vi xử lý ngầm (Agents), cũng như liệt kê các bước hành động tiếp theo để nâng cấp trạm SOC.
 
 ---

@@ -12,11 +12,15 @@
   ],
   "scripts": {
     "build": "turbo run build",
-    "test": "node --loader ts-node/esm tests/e2e/test_closed_loop.ts",
-    "start:standalone": "node --loader ts-node/esm services/standalone/src/command-center.ts",
-    "start:worker": "node --loader ts-node/esm services/cli-worker/src/worker.ts",
-    "start:ide": "node --loader ts-node/esm services/ide-reasoning/src/engine.ts",
-    "e2e": "tsx tests/e2e/test_closed_loop.ts"
+    "test": "npm run test:unit && npm run test:integration && npm run test:smoke",
+    "test:unit": "turbo run test --filter=@asq/sdk --filter=@asq/auth --filter=@asq/cli --filter=@asq/ide-reasoning --force",
+    "start:standalone": "node scripts/runtime.mjs standalone",
+    "start:worker": "node scripts/runtime.mjs worker",
+    "start:ide": "node scripts/runtime.mjs ide",
+    "e2e": "npm run test:integration",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:smoke": "node scripts/runtime.mjs smoke",
+    "typecheck": "tsc --noEmit && tsc --noEmit --project apps/standalone/tsconfig.json"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

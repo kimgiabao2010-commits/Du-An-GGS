@@ -4,13 +4,14 @@ dotenv.config();
 
 export class LlmRouter {
     private openai: any;
-    private modelName = 'qwen/qwen3.6-27b'; // Đổi sang siêu mẫu Qwen mới nhất hiện có trên Groq
+    private modelName = process.env.ASQ_ROUTER_MODEL || 'gpt-5.6-terra';
 
     constructor() {
         // Khởi tạo client dùng thư viện OpenAI nhưng chỏ về máy chủ Groq
         this.openai = new OpenAI({ 
-            apiKey: process.env.GROQ_API_KEY || '',
-            baseURL: 'https://api.groq.com/openai/v1' 
+            apiKey: process.env.OPENAI_API_KEY || '',
+            timeout: 20000,
+            maxRetries: 0
         });
     }
 
@@ -18,16 +19,16 @@ export class LlmRouter {
      * Nhận Prompt tự nhiên, giao Llama 3 phân tích và quyết định gọi Tool nào.
      */
     public async routePrompt(prompt: string): Promise<any> {
-        if (!process.env.GROQ_API_KEY || process.env.GROQ_API_KEY === 'YOUR_GROQ_API_KEY_HERE') {
-            console.error('[LlmRouter] Thiếu GROQ_API_KEY. Vui lòng thêm vào file .env');
+        if (!process.env.OPENAI_API_KEY) {
+            console.error('[LlmRouter] Thiếu OPENAI_API_KEY. Vui lòng cấu hình biến môi trường.');
             return {
                 agent: 'system',
-                instruction: 'Error: Chưa cấu hình GROQ_API_KEY trong file .env!'
+                instruction: 'Error: Chưa cấu hình OPENAI_API_KEY trong môi trường!'
             };
         }
 
         try {
-            console.log(`[LlmRouter] Đang suy nghĩ (Reasoning) siêu tốc bằng Groq Llama 3...`);
+            console.log(`[LlmRouter] Đang xử lý điều phối bằng ${this.modelName} (reasoning: medium)...`);
             
             // Định nghĩa Tool Calling cho Qwen (theo chuẩn Hướng dẫn của CISO)
             const tools: any = [
@@ -88,6 +89,7 @@ LUẬT LỆ RẮN CẮN (CỰC KỲ QUAN TRỌNG):
                     }
                 ],
                 tools: tools,
+                reasoning_effort: 'medium',
                 temperature: 0.4,
                 max_tokens: 2048 // Đã gỡ bỏ giới hạn 50 tokens, cho phép AI trả về câu chữ dài và trò chuyện tự nhiên
             });
@@ -99,7 +101,10 @@ LUẬT LỆ RẮN CẮN (CỰC KỲ QUAN TRỌNG):
             if (message.tool_calls && message.tool_calls.length > 0) {
                 const toolCall: any = message.tool_calls[0];
                 const args = JSON.parse(toolCall.function.arguments);
-                const instruction = args.target_instruction || 'Không rõ chỉ đạo';
+                const instruction = args.target_instruction;
+                if (typeof instruction !== 'string' || !instruction.trim() || instruction.length > 16000) {
+                    throw new Error('Invalid tool instruction');
+                }
                 
                 if (toolCall.function.name === 'delegate_cli') {
                     return { agent: 'cli', instruction };
@@ -114,22 +119,9 @@ LUẬT LỆ RẮN CẮN (CỰC KỲ QUAN TRỌNG):
                 instruction: message.content || 'Tôi không hiểu ý của ngài Chỉ huy.'
             };
 
-        } catch (err: any) {
-            console.error('[LlmRouter] Lỗi gọi Qwen/Groq API:', err.message || err);
-            
-            // Xử lý cứng một vài câu chào để Demo mượt mà kể cả khi đứt API
-            const p = prompt.toLowerCase();
-            if (p.includes('hello') || p.includes('chào') || p.includes('hi')) {
-                 return {
-                     agent: 'chat',
-                     instruction: 'Xin chào Chỉ Huy. Khối máy chủ AI Cloud của Groq đang tạm thời từ chối truy cập (có thể do API Key hết hạn). Tuy nhiên, Khối Module Nội bộ vẫn hoạt động hoàn hảo! Ban có thể gõ các lệnh cứng như "Inject Zero-day".'
-                 };
-            }
-
-            return {
-                agent: 'system',
-                instruction: `Error: Trục trặc Neural Network (${err.message || 'Unknown'}). Vui lòng kiểm tra lại GROQ_API_KEY.`
-            };
+        } catch {
+            // Fail closed. Do not fabricate a successful fallback or expose provider error details.
+            return { agent: 'system', instruction: 'LLM_UNAVAILABLE: Không thể hoàn tất điều phối. Chưa gửi task tới worker.' };
         }
     }
 }

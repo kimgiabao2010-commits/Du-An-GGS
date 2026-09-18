@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect } from 'vitest';
 import { render } from 'ink-testing-library';
-import { StatusBadge } from '../src/components/StatusBadge'
+import { StatusBadge } from '../src/components/StatusBadge.tsx';
 
 describe('CLI Components', () => {
     it('StatusBadge should render CRITICAL correctly', () => {

@@ -1,15 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ASQClient } from '../src/asq-client.js';
+import { ASQgRPCClient } from '../src/transport/grpc-client.ts';
 
 // Mock ws
 vi.mock('ws', () => {
+  const WebSocket = vi.fn().mockImplementation(() => ({
+    on: vi.fn(),
+    send: vi.fn(),
+    close: vi.fn(),
+    readyState: 1 // OPEN
+  }));
+  Object.assign(WebSocket, { OPEN: 1 });
+
   return {
-    WebSocket: vi.fn().mockImplementation(() => ({
-      on: vi.fn(),
-      send: vi.fn(),
-      close: vi.fn(),
-      readyState: 1 // OPEN
-    }))
+    WebSocket
   };
 });
 
@@ -19,9 +23,10 @@ describe('ASQClient Core SDK', () => {
   beforeEach(() => {
     client = new ASQClient({
       wsUrl: 'ws://mock-server',
-      token: 'fake-jwt-token'
+      token: 'fake-jwt-token',
+      grpcMode: 'mock'
     });
-    client.connect();
+    client.ws.connect();
   });
 
   it('should initialize all ASQ modules', () => {
@@ -53,9 +58,10 @@ describe('ASQClient Core SDK', () => {
     });
   });
 
-  it('should submit patch via gRPC mock fallback', async () => {
-    const result = await client.grpc.submitPatch('rule-1', 'test.js', Buffer.from('diff'));
-    // Vì gRPC đang chạy ở mode không có server thật, client sẽ fallback về object mock success
+  it('should submit a patch only when an explicit mock client is selected', async () => {
+    const grpc = new ASQgRPCClient('mock://asq', 'mock');
+    grpc.connect();
+    const result = await grpc.submitPatch('rule-1', 'test.js', Buffer.from('diff'));
     expect(result.success).toBe(true);
     expect(result.patch_hash).toBeDefined();
   });
