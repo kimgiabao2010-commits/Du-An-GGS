@@ -11,9 +11,12 @@
     "services/*"
   ],
   "scripts": {
+    "dev": "node scripts/dev-stack.mjs",
+    "dev:check": "node scripts/dev-stack.mjs --dry-run",
+    "db:migrate": "node scripts/migrate-postgres.mjs",
     "build": "turbo run build",
     "test": "npm run test:unit && npm run test:integration && npm run test:smoke",
-    "test:unit": "turbo run test --filter=@asq/sdk --filter=@asq/auth --filter=@asq/cli --filter=@asq/ide-reasoning --force",
+    "test:unit": "turbo run test --filter=@asq/sdk --filter=@asq/auth --filter=@asq/cli --filter=@asq/guardrails --filter=@asq/ide-reasoning --force",
     "start:standalone": "node scripts/runtime.mjs standalone",
     "start:worker": "node scripts/runtime.mjs worker",
     "start:ide": "node scripts/runtime.mjs ide",
@@ -32,6 +35,8 @@
   "dependencies": {
     "@google/genai": "^2.21.0",
     "dotenv": "^17.4.2",
-    "openai": "^7.10.0"
+    "google-auth-library": "^11.1.0",
+    "openai": "^7.10.0",
+    "pg": "^8.23.0"
   }
 }

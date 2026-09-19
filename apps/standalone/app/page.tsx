@@ -1,63 +1,44 @@
-import AutonomySlider from '../components/AutonomySlider';
-import KillSwitch from '../components/KillSwitch';
-import OrchestratorPrompt from '../components/OrchestratorPrompt';
 import Link from 'next/link';
+import { ArrowRight, Bot, CircleAlert, Command, FileCheck2, Gauge, Sparkles, Workflow } from 'lucide-react';
+import { agents, executions, tasks } from '../lib/operations-data';
+import { DataNotice, Metric, PageHeader, StatusBadge } from '../components/ui';
 
-export default function StandaloneDashboard() {
-  return (
-    <div style={{ display: 'flex', height: '100vh', width: '100vw', backgroundColor: 'transparent', color: 'var(--text-primary)', overflow: 'hidden', padding: '24px', gap: '24px' }}>
-      
-      {/* Cột Trái (Sidebar Thiết Lập) - Phong cách Apple VisionOS Floating Panel */}
-      <div className="vision-panel" style={{ 
-          width: '300px', 
-          display: 'flex',
-          flexDirection: 'column',
-          padding: '28px 24px',
-          height: '100%'
-      }}>
-          <div style={{ marginBottom: '40px' }}>
-              <h1 className="text-gradient" style={{ fontSize: '1.6rem', fontWeight: 700, letterSpacing: '0.5px', margin: 0 }}>ASQ HEADQUARTERS</h1>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '6px', fontWeight: 500 }}>AI Orchestrator Engine</p>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '32px', flex: 1 }}>
-              <div>
-                  <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'rgba(255,255,255,0.5)', marginBottom: '16px', fontWeight: 600, letterSpacing: '1px' }}>Global Controls</div>
-                  <AutonomySlider />
-              </div>
-
-              <div>
-                  <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--color-danger)', marginBottom: '16px', fontWeight: 600, letterSpacing: '1px' }}>Emergency System</div>
-                  <KillSwitch />
-              </div>
-          </div>
-
-          <div style={{ marginTop: 'auto', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '24px' }}>
-              <Link href="/siem" target="_blank" className="nav-btn">
-                 <span>📊 Mở SIEM Giám Sát</span>
-                 <span style={{ fontSize: '1.2rem', marginLeft: 'auto' }}>↗</span>
-              </Link>
-              
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginTop: '24px', padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: '16px' }}>
-                  <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'linear-gradient(135deg, #0A84FF, #5E5CE6)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(10,132,255,0.3)' }}>
-                      👤
-                  </div>
-                  <div>
-                      <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>Tư Lệnh ASQ</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--color-success)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span style={{ width: '6px', height: '6px', background: 'var(--color-success)', borderRadius: '50%', display: 'inline-block', boxShadow: '0 0 8px var(--color-success)' }}></span> 
-                          Local prototype
-                      </div>
-                  </div>
-              </div>
-          </div>
-      </div>
-
-      {/* Cột Phải (Trung tâm Chat) - Phong cách Mac Window mờ */}
-      <div className="mac-window" style={{ flex: 1, position: 'relative', height: '100%', display: 'flex' }}>
-          <OrchestratorPrompt />
-      </div>
-
+export default function OverviewPage() {
+  const current = executions[0];
+  return <div className="page-stack">
+    <PageHeader eyebrow="Operations overview" title="Good morning. GSS is healthy." description="The control plane is responsive, three agents are available, and one investigation needs attention." actions={<><Link className="button secondary" href="/executions">View executions</Link><Link className="button primary" href="/command"><Command size={16} />New task</Link></>} />
+    <DataNotice />
+    <section className="health-hero" aria-label="System health">
+      <div className="health-summary"><span className="health-icon"><Gauge size={24} aria-hidden="true" /></span><div><span className="metric-label">System health</span><h2>All core services operational</h2><p>Command Center, worker channel and evidence pipeline are responding normally.</p></div></div>
+      <div className="hero-metrics"><Metric label="Active agents" value={`${agents.filter(agent => agent.state === 'Active').length} / ${agents.length}`} note="1 degraded" /><Metric label="Tasks running" value="1" note="3 queued or complete" /><Metric label="Failures" value="1" note="Last 60 minutes" /><Metric label="Spend today" value="$4.82" note="−41% optimized" trend="down" /></div>
+    </section>
+    <div className="overview-grid">
+      <section className="panel active-execution">
+        <div className="section-heading"><div><p className="eyebrow">Now running</p><h2>{current.title}</h2></div><StatusBadge status={current.status} /></div>
+        <div className="execution-progress"><div><span>Investigation progress</span><strong>68%</strong></div><div className="progress-track"><span style={{ width: '68%' }} /></div></div>
+        <div className="optimization-strip">
+          <div><span>Context</span><strong>{current.contextBefore} <ArrowRight size={14} /> {current.contextAfter}</strong><small>−{current.contextSaving}</small></div>
+          <div><span>LLM calls</span><strong>{current.llmBefore} <ArrowRight size={14} /> {current.llmAfter}</strong><small>5 avoided</small></div>
+          <div><span>Tool calls</span><strong>{current.toolsBefore} <ArrowRight size={14} /> {current.toolsAfter}</strong><small>7 avoided</small></div>
+          <div><span>Estimated cost</span><strong>{current.costBefore} <ArrowRight size={14} /> {current.costAfter}</strong><small>−53.6%</small></div>
+        </div>
+        <div className="current-step"><span className="trace-mini-icon"><FileCheck2 size={16} /></span><div><span>Current step</span><strong>Correlating retained evidence with identity activity</strong></div><span className="pulse-label"><span className="status-dot info" />Live</span></div>
+        <Link className="text-link" href={`/executions/${current.id}`}>Open execution trace <ArrowRight size={15} /></Link>
+      </section>
+      <section className="panel attention-panel">
+        <div className="section-heading"><div><p className="eyebrow">Attention</p><h2>One item needs review</h2></div><CircleAlert size={20} className="warning-icon" /></div>
+        <div className="attention-item"><span className="status-icon error"><CircleAlert size={16} /></span><div><strong>Research provider timeout</strong><p>EXE-8418 stopped without creating evidence. The retry boundary held as expected.</p><small>7 minutes ago</small></div></div>
+        <Link className="text-link" href="/logs">Inspect failure logs <ArrowRight size={15} /></Link>
+      </section>
     </div>
-  );
+    <section className="panel table-panel">
+      <div className="section-heading"><div><p className="eyebrow">Recent activity</p><h2>Tasks</h2></div><Link className="text-link" href="/tasks">View all <ArrowRight size={15} /></Link></div>
+      <div className="table-wrap"><table><thead><tr><th>Task</th><th>Status</th><th>Agent</th><th>Progress</th><th className="numeric">Cost</th></tr></thead><tbody>{tasks.slice(0, 4).map(task => <tr key={task.id}><td><Link className="table-primary" href={task.id === 'TSK-2481' ? '/executions/EXE-8421' : '/tasks'}>{task.title}</Link><span className="table-secondary">{task.id} · {task.startedAt}</span></td><td><StatusBadge status={task.status} /></td><td>{task.agent}</td><td><div className="table-progress"><span style={{ width: `${task.progress}%` }} /></div><span className="progress-value">{task.progress}%</span></td><td className="numeric mono">{task.cost}</td></tr>)}</tbody></table></div>
+    </section>
+    <div className="insight-grid">
+      <section className="quiet-section"><div className="insight-icon"><Sparkles size={18} /></div><div><span className="metric-label">Optimization savings</span><strong>$3.29</strong><p>Saved today through Action Fusion, context compaction and evidence reduction.</p></div></section>
+      <section className="quiet-section"><div className="insight-icon"><Bot size={18} /></div><div><span className="metric-label">Agent reliability</span><strong>96.5%</strong><p>Average successful completion across the last 50 read-only operations.</p></div></section>
+      <section className="quiet-section"><div className="insight-icon"><Workflow size={18} /></div><div><span className="metric-label">Evidence lineage</span><strong>100%</strong><p>Every current verdict links to retained evidence and a policy version.</p></div></section>
+    </div>
+  </div>;
 }

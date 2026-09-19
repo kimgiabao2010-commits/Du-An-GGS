@@ -1,25 +1,30 @@
 import { OpenAI } from 'openai';
+import { ContextBudgeter } from '@asq/guardrails';
 import * as dotenv from 'dotenv';
 dotenv.config();
 
 export class LlmRouter {
-    private openai: any;
-    private modelName = process.env.ASQ_ROUTER_MODEL || 'gpt-5.6-terra';
+    private openai: OpenAI | null;
+    private contextBudgeter = new ContextBudgeter({ maxTokens: Number(process.env.ASQ_CONTEXT_MAX_TOKENS ?? 4096) });
+    private modelName = process.env.ASQ_ROUTER_MODEL ||
+        (process.env.GROQ_API_KEY ? 'llama-3.3-70b-versatile' : 'gpt-5.6-luna');
 
     constructor() {
         // Khởi tạo client dùng thư viện OpenAI nhưng chỏ về máy chủ Groq
-        this.openai = new OpenAI({ 
-            apiKey: process.env.OPENAI_API_KEY || '',
+        const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
+        this.openai = apiKey ? new OpenAI({
+            apiKey,
+            ...(process.env.OPENAI_API_KEY ? {} : { baseURL: 'https://api.groq.com/openai/v1' }),
             timeout: 20000,
             maxRetries: 0
-        });
+        }) : null;
     }
 
     /**
      * Nhận Prompt tự nhiên, giao Llama 3 phân tích và quyết định gọi Tool nào.
      */
     public async routePrompt(prompt: string): Promise<any> {
-        if (!process.env.OPENAI_API_KEY) {
+        if (!this.openai) {
             console.error('[LlmRouter] Thiếu OPENAI_API_KEY. Vui lòng cấu hình biến môi trường.');
             return {
                 agent: 'system',
@@ -28,6 +33,9 @@ export class LlmRouter {
         }
 
         try {
+            const context = this.contextBudgeter.prepare(prompt);
+            console.info(`[LlmRouter] Context ${context.inputTokenEstimate} -> ${context.outputTokenEstimate} tokens; ` +
+                `pruned=${context.omittedCharacters} quarantined=${context.quarantinedFragments} redacted=${context.redactedSecrets}`);
             console.log(`[LlmRouter] Đang xử lý điều phối bằng ${this.modelName} (reasoning: medium)...`);
             
             // Định nghĩa Tool Calling cho Qwen (theo chuẩn Hướng dẫn của CISO)
@@ -85,7 +93,7 @@ LUẬT LỆ RẮN CẮN (CỰC KỲ QUAN TRỌNG):
                     },
                     {
                         role: "user",
-                        content: prompt
+                        content: context.modelInput
                     }
                 ],
                 tools: tools,

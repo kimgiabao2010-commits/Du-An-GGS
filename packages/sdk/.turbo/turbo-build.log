@@ -1,4 +1,4 @@
 
 > @asq/sdk@4.0.0 build
-> tsc
+> tsc && node ../../scripts/copy-sdk-proto.mjs
 

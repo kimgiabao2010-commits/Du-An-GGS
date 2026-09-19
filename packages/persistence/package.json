@@ -1,0 +1,22 @@
+{
+  "name": "@asq/persistence",
+  "version": "4.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@asq/sdk": "*",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.15.5",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

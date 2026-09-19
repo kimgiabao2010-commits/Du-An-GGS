@@ -8,20 +8,31 @@
  ✓ Compiled successfully
    Linting and checking validity of types ...
    Collecting page data ...
-   Generating static pages (0/7) ...
-   Generating static pages (1/7) 
-   Generating static pages (3/7) 
-   Generating static pages (5/7) 
- ✓ Generating static pages (7/7)
+   Generating static pages (0/16) ...
+   Generating static pages (4/16) 
+   Generating static pages (8/16) 
+   Generating static pages (12/16) 
+ ✓ Generating static pages (16/16)
    Finalizing page optimization ...
    Collecting build traces ...
 
 Route (app)                              Size     First Load JS
-┌ ○ /                                    3.18 kB        99.2 kB
+┌ ○ /                                    188 B          97.4 kB
 ├ ○ /_not-found                          873 B          88.2 kB
+├ ○ /agents                              1.52 kB        88.8 kB
 ├ ƒ /api/auth                            0 B                0 B
-├ ○ /api/grafana/proxy                   0 B                0 B
-└ ○ /siem                                122 kB          218 kB
+├ ƒ /api/grafana/proxy                   0 B                0 B
+├ ○ /command                             5.15 kB        92.5 kB
+├ ○ /context                             1.52 kB        88.8 kB
+├ ○ /evidence                            2.93 kB        90.2 kB
+├ ○ /executions                          188 B          97.4 kB
+├ ● /executions/[id]                     2.44 kB        99.6 kB
+├   ├ /executions/EXE-8421
+├   ├ /executions/EXE-8419
+├   └ /executions/EXE-8418
+├ ○ /logs                                2.64 kB        89.9 kB
+├ ○ /siem                                122 kB          209 kB
+└ ○ /tasks                               1.97 kB        99.2 kB
 + First Load JS shared by all            87.3 kB
   ├ chunks/1dd3208c-d6804214a02e0ca9.js  53.6 kB
   ├ chunks/528-4c010fb21bde0d4d.js       31.7 kB
@@ -29,5 +40,6 @@ Route (app)                              Size     First Load JS
 
 
 ○  (Static)   prerendered as static content
+●  (SSG)      prerendered as static HTML (uses getStaticProps)
 ƒ  (Dynamic)  server-rendered on demand
 

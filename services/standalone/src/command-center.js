@@ -1,16 +1,23 @@
-import { EventBus, TokenSigner } from '@asq/sdk';
+import { WsCommandServer, EventBus, TokenSigner } from '@asq/sdk';
+import { LlmRouter } from './agent/llm-router.js';
 import { SiemReceiver } from './ingestion/siem-receiver.js';
 import { EmergencyKillSwitch } from './killswitch/emergency-switch.js';
 import { BlastRadiusAssessmentEngine } from './assessment/blast-radius.js';
 import { ProgressiveAutonomyController } from './autonomy/progressive-controller.js';
 export class CentralCommandOrchestrator {
+    wsServer;
+    llmRouter;
+    // Core Modules
     eventBus;
     signer;
     siemReceiver;
     blastRadius;
     autonomy;
     killSwitch;
-    constructor() {
+    constructor(port) {
+        this.wsServer = new WsCommandServer(port);
+        this.llmRouter = new LlmRouter();
+        // Init Core Modules
         this.eventBus = EventBus.getInstance();
         this.signer = new TokenSigner();
         this.siemReceiver = new SiemReceiver();
@@ -20,36 +27,88 @@ export class CentralCommandOrchestrator {
         this.initializeCommandCenter();
     }
     initializeCommandCenter() {
-        console.log(`[Central Command] 👑 TRỤ SỞ VĨ MÔ KẾT NỐI TOÀN TẬP. Lắng nghe hồi báo 5 Châu...`);
-        // Thu hoạch Thành quả từ Pipeline V4 (Từ SDK -> Guardrails -> CLI -> IDE)
+        console.log(`[Central Command] 👑 BỘ CHỈ HUY TRÍ TUỆ NHÂN TẠO \& ORCHESTRATOR. Lắng nghe các Agent báo cáo tại port 4000...`);
+        // ==========================================
+        // 1. NGHE SỰ KIỆN TỪ BACKEND EVENT BUS (Core Logic)
+        // ==========================================
         this.eventBus.subscribe('worker:patch_verification_done', async (sandboxReport) => {
             if (this.killSwitch.isHalted())
                 return;
             console.log(`\n[Central Command] 📬 Nhận hồ sơ Nghiệm thu Sandbox. Chuyển cấp Đánh giá Blast Radius.`);
-            // Giả lập đọc Target File từ chuỗi Report (Bình thường Patch Gen sẽ cấp list)
+            this.broadcastToUI('System (Orchestrator)', '📬 Đang chạy Đánh giá Bán kính Sát thương (Blast Radius)...');
             const targetFiles = ['infra/aws.tf', 'src/db/core-auth.ts'];
             const blastAssess = this.blastRadius.calculateRiskScore(targetFiles);
+            this.broadcastToUI('System (BlastRadius)', `Điểm rủi ro: ${blastAssess.score}/100. Đánh giá Mức độ Tự Trị...`);
             const finalVerdict = await this.autonomy.coordinateDeployment(blastAssess, 'dummy_patch_data_string');
-            console.log(`\n[Central Command] 🏁 CHU KỲ KIỂM TOÁN ASQ-V4 ĐÃ ĐÓNG KÍN MẠCH (Closed-Loop). \nBáo cáo tóm tắt: ${finalVerdict}\n`);
+            console.log(`\n[Central Command] 🏁 CHU KỲ KIỂM TOÁN ASQ-V4 ĐÃ ĐÓNG KÍN MẠCH. \nBáo cáo: ${finalVerdict}\n`);
+            this.broadcastToUI('System (Autonomy)', `🏁 Kết luận Cấp Tự Trị: ${finalVerdict}`);
         });
-        // Ứng cứu nếu hệ thống có cờ Escalate
         this.eventBus.subscribe('incident:escalate', (payload) => {
-            console.log(`[Central Command] 🆘 NHẬN LỆNH CẤU CỨU TỪ TIỀN TUYẾN: ${payload.reason}. Chuyển giao đội Incident Response 24/7.`);
+            console.log(`[Central Command] 🆘 NHẬN LỆNH CẤU CỨU TỪ TIỀN TUYẾN: ${payload.reason}`);
+            this.broadcastToUI('System (IncidentResponse)', `🆘 CẤP CỨU: ${payload.reason}`);
+        });
+        // ==========================================
+        // 2. NGHE SỰ KIỆN TỪ FRONTEND UI WEBSOCKET
+        // ==========================================
+        this.wsServer.on('message', async (msg) => {
+            // Chuẩn hóa Msg từ JSON payload đã được server wrap (agentId rớt ra ngoài)
+            const asqMsg = msg; // msg is basically { agentId, ...ASQMessage }
+            const { agentId, type, payload, source } = asqMsg;
+            // Xử lý báo cáo từ các Agent/Worker -> Phát lại lên UI
+            if (type === 'EVIDENCE' && payload?.content) {
+                console.log(`\n[Central Command] 📬 Nhận EVIDENCE từ ${agentId}: ${payload.content}`);
+                this.broadcastToUI(agentId, payload.content);
+            }
+            // Giao Dịch Từ Nút Khẩn Cấp UI (Kill Switch)
+            else if (type === 'COMMAND' && payload?.action === 'trigger_killswitch') {
+                console.log(`\n[Central Command] 🔴 SIÊU CẤP: Lệnh ngắt hệ thống từ UI Dashboard!`);
+                this.killSwitch.triggerGlobalKillSwitch("CISO kích hoạt từ Web Emergency Panel");
+                // Cảnh báo đỏ lên UI
+                this.broadcastToUI('KILL_SWITCH_ENGINE', '🔴 HỆ THỐNG ĐÃ BỊ ĐÓNG BĂNG HOÀN TOÀN TỪ CHỈ HUY!', true);
+            }
+            // Inject Test Data để chạy Pipeline Mồi
+            else if (type === 'COMMAND' && (payload?.action === 'inject_zero_day' || (payload?.action === 'commander_prompt' && payload?.content?.toLowerCase().includes('inject zero-day')))) {
+                this.broadcastToUI('System (Orchestrator)', '⚠️ Phát hiện Luồng tiêm nhiễm giả định! Khởi động SiemReceiver...');
+                this.triggerPipelineFlow("ALERT: User Root executed bash script downloaded from 13.54.21.1 to S3 ACL.");
+            }
+            // Xử lý Mệnh lệnh tự nhiên từ UI (Llm Prompt)
+            else if (type === 'COMMAND' && payload?.action === 'commander_prompt') {
+                const content = payload.content;
+                if (this.killSwitch.isHalted()) {
+                    this.broadcastToUI('KILL_SWITCH_ENGINE', '❌ Lỗi: Hệ thống đang bị Kéo Phanh. AI không phản hồi!', true);
+                    return;
+                }
+                console.log(`\n[Central Command] 🗣 Chỉ huy ra lệnh: "${content}"`);
+                const routingDecision = await this.llmRouter.routePrompt(content);
+                if (routingDecision.agent === 'cli') {
+                    console.log(`[Central Command] 👉 LLM Quyết định: Giao cho CLI Worker (${routingDecision.instruction})`);
+                    this.wsServer.sendToAgent('cli-worker-agent', {
+                        source: 'STANDALONE',
+                        target: 'CLI_DAEMON',
+                        type: 'TASK',
+                        payload: { action: 'execute_command', instruction: routingDecision.instruction }
+                    });
+                    this.broadcastToUI('System (LLM Router)', `⚡ Chuyển lệnh Trinh sát CLI: [${routingDecision.instruction}]`);
+                }
+                else if (routingDecision.agent === 'ide') {
+                    console.log(`[Central Command] 👉 LLM Quyết định: Giao cho IDE Agent (Điều tra) (${routingDecision.instruction})`);
+                    this.wsServer.sendToAgent('ide-worker-agent', {
+                        source: 'STANDALONE',
+                        target: 'IDE_AGENT',
+                        type: 'TASK',
+                        payload: { action: 'execute_command', instruction: routingDecision.instruction }
+                    });
+                    this.broadcastToUI('System (LLM Router)', `🔎 Chuyển lệnh Điều tra (IDE Agent): [${routingDecision.instruction}]`);
+                }
+                else {
+                    this.broadcastToUI('System (AI)', routingDecision.instruction);
+                }
+            }
         });
     }
-    /**
-     * Mồi lửa Chu trình. SIEM bắn còi báo động vào CommandCenter
-     */
     triggerPipelineFlow(rawPayload) {
-        if (this.killSwitch.isHalted()) {
-            console.error('[Central Command] Hệ thống đang bị Kéo Phanh (Halted). Hủy bỏ nạp Log.');
-            return;
-        }
-        console.log(`\n======================================================`);
-        console.log(`  🚀 BẮT ĐẦU CHU TRÌNH TỰ CHỮA LÀNH ĐA TẦNG ASQ-V4    `);
-        console.log(`======================================================\n`);
         const udm = this.siemReceiver.ingestRawLog(rawPayload);
-        console.log(`[Central Command] ✍️ Thảo chiếu chỉ Token Mệnh lệnh (Quyền: EXECUTE_RECON)`);
+        this.broadcastToUI('SIEM Receiver', `Đã làm sạch Raw Payload. Sinh UDM tracking ID: ${udm.id}`);
         const signedReconToken = this.signer.sign({
             agentId: 'cmd-hq-001',
             role: 'orchestrator-king',
@@ -57,14 +116,31 @@ export class CentralCommandOrchestrator {
             timestamp: Date.now(),
             expiresAt: Date.now() + 180000
         });
-        // Nã pháo ra chiến trường ngầm (CLI Sandbox Recon Agent sẽ dính bẫy và bóp cò chạy scan)
         this.eventBus.publish('worker:recon_request', { token: signedReconToken, targetIp: udm.details.targetIp });
+        this.broadcastToUI('System (Orchestrator)', `Đã kích hoạt Chu trình Pipeline ngầm! (Bắn sự kiện worker:recon_request)`);
+        // Giả lập Worker nội bộ (Phục vụ mục đích test Standalone khép kín)
+        setTimeout(() => {
+            if (this.killSwitch.isHalted())
+                return;
+            this.broadcastToUI('System (CLI Sandbox)', `🤖 Khởi chạy trinh sát đích ${udm.details.targetIp} trong Sandbox... Không phát hiện payload vỡ, biên dịch lại an toàn.`);
+            this.eventBus.publish('worker:patch_verification_done', { status: 'safe_to_deploy' });
+        }, 1500);
+    }
+    // Tiện ích gửi tin nhắn xuống UI FrontEnd
+    broadcastToUI(source, message, isError = false) {
+        this.wsServer.broadcast({
+            source: 'STANDALONE',
+            target: 'BROADCAST',
+            type: 'STATUS',
+            payload: {
+                action: 'ui_flash',
+                source: source,
+                message: message,
+                isError: isError
+            }
+        });
     }
 }
-// KHỞI KÍCH HOẠT HỆ THỐNG
-const hq = new CentralCommandOrchestrator();
-// (Mock) Bắn mô phỏng Cảnh báo từ Google Chronicle hoặc Datadog
-setTimeout(() => {
-    hq.triggerPipelineFlow("ALERT: User Root executed bash script downloaded from 13.54.21.1 to S3 ACL.");
-}, 500);
+// KHỞI KÍCH HOẠT HỆ THỐNG Ở CỔNG 4000
+const hq = new CentralCommandOrchestrator(4000);
 //# sourceMappingURL=command-center.js.map

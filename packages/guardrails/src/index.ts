@@ -4,3 +4,5 @@ export type { ModelTier } from './finops/token-bucket.js';
 export { AdversarialRedTeamVerifier } from './adversarial/red-team-verifier.js';
 export { CanaryRollbackGuard } from './canary/rollback-guard.js';
 export type { RolloutStage } from './canary/rollback-guard.js';
+export { ContextBudgeter } from './context/context-budgeter.js';
+export type { ContextBudgetOptions, ContextPack } from './context/context-budgeter.js';

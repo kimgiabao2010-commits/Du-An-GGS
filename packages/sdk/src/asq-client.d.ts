@@ -8,6 +8,7 @@ import { BlastRadiusModule } from './modules/blast-radius.js';
 export interface ASQClientOptions {
     wsUrl?: string;
     grpcUrl?: string;
+    grpcMode?: 'live' | 'mock';
     grafanaUrl?: string;
     token: string;
     grafanaToken?: string;

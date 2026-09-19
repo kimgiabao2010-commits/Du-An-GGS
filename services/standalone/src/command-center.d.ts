@@ -1,16 +1,16 @@
 import { EmergencyKillSwitch } from './killswitch/emergency-switch.js';
 export declare class CentralCommandOrchestrator {
+    private wsServer;
+    private llmRouter;
     private eventBus;
     private signer;
     private siemReceiver;
     private blastRadius;
     private autonomy;
     killSwitch: EmergencyKillSwitch;
-    constructor();
+    constructor(port: number);
     private initializeCommandCenter;
-    /**
-     * Mồi lửa Chu trình. SIEM bắn còi báo động vào CommandCenter
-     */
-    triggerPipelineFlow(rawPayload: string): void;
+    private triggerPipelineFlow;
+    private broadcastToUI;
 }
 //# sourceMappingURL=command-center.d.ts.map

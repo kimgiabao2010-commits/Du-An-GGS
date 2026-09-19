@@ -17,6 +17,9 @@
       ],
       "@asq/guardrails": [
         "packages/guardrails/src/index.ts"
+      ],
+      "@asq/persistence": [
+        "packages/persistence/src/index.ts"
       ]
     },
     "noEmit": true,

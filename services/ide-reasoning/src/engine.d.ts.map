@@ -1,1 +1,1 @@
-{"version":3,"file":"engine.d.ts","sourceRoot":"","sources":["engine.ts"],"names":[],"mappings":"AAMA,qBAAa,wBAAwB;IACjC,OAAO,CAAC,QAAQ,CAAW;IAC3B,OAAO,CAAC,MAAM,CAAc;IAG5B,OAAO,CAAC,WAAW,CAAqB;IACxC,OAAO,CAAC,SAAS,CAAoB;IACrC,OAAO,CAAC,SAAS,CAAiB;IAClC,OAAO,CAAC,eAAe,CAA6B;;IAcpD,OAAO,CAAC,kBAAkB;YAUZ,wBAAwB;IAyD/B,IAAI,IAAI,IAAI;CAGtB"}
+{"version":3,"file":"engine.d.ts","sourceRoot":"","sources":["engine.ts"],"names":[],"mappings":"AAEA,qBAAa,qBAAqB;IAC9B,OAAO,CAAC,QAAQ,CAAqB;;IAOrC,OAAO,CAAC,mBAAmB;IAyCpB,GAAG,IAAI,IAAI;CAGrB"}

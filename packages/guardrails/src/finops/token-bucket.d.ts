@@ -1,4 +1,4 @@
-export type ModelTier = 'Gemini Pro' | 'Gemini Flash' | 'Gemini Flash-Lite';
+export type ModelTier = 'gpt-6-astra' | 'gpt-5.6-terra' | 'gpt-5.6-luna';
 export declare class FinOpsGuardrail {
     private rpmCapacity;
     private rpmTokens;

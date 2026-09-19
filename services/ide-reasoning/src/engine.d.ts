@@ -1,13 +1,7 @@
-export declare class IdeReasoningMasterEngine {
-    private eventBus;
-    private signer;
-    private modelRouter;
-    private astParser;
-    private generator;
-    private redTeamVerifier;
+export declare class IdeInvestigatorDaemon {
+    private wsClient;
     constructor();
-    private initializeWorkflow;
-    private executeReasoningPipeline;
-    boot(): void;
+    private initializeListeners;
+    run(): void;
 }
 //# sourceMappingURL=engine.d.ts.map

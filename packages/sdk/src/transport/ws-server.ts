@@ -21,7 +21,9 @@ export class WsCommandServer extends EventEmitter {
             port, host: options.host ?? '127.0.0.1', maxPayload: 65536,
             verifyClient: (info, done) => {
                 const origin = info.req.headers.origin;
-                if (origin && origin !== (options.allowedOrigin ?? 'http://localhost:3000')) {
+                const allowedOrigins = (options.allowedOrigin ?? 'http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001')
+                    .split(',').map(value => value.trim()).filter(Boolean);
+                if (origin && !allowedOrigins.includes(origin)) {
                     done(false, 403, 'Origin denied'); return;
                 }
                 const bearer = info.req.headers.authorization?.replace(/^Bearer /, '');

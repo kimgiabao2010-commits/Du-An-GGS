@@ -1,10 +1,13 @@
 import { WebSocket } from 'ws';
+import { randomUUID } from 'node:crypto';
 export class ASQWebSocketClient {
-    ws = null;
     url;
     token;
-    reconnectAttempts = 0;
     maxReconnectAttempts;
+    ws = null;
+    reconnectAttempts = 0;
+    stopped = false;
+    timer;
     callbacks = new Map();
     constructor(url, token, maxReconnectAttempts = 5) {
         this.url = url;
@@ -12,57 +15,63 @@ export class ASQWebSocketClient {
         this.maxReconnectAttempts = maxReconnectAttempts;
     }
     connect() {
-        const headers = { Authorization: `Bearer ${this.token}` };
-        this.ws = new WebSocket(this.url, { headers });
-        this.ws.on('open', () => {
-            this.reconnectAttempts = 0;
-            this.emit('system:connected', { status: 'Connected to ASQ C2' });
-        });
-        this.ws.on('message', (data) => {
+        this.stopped = false;
+        if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING))
+            return;
+        const ws = new WebSocket(this.url, { headers: { Authorization: 'Bearer ' + this.token }, maxPayload: 65536 });
+        this.ws = ws;
+        ws.on('open', () => { this.reconnectAttempts = 0; this.emit('system:connected', {}); });
+        ws.on('message', data => {
             try {
                 const parsed = JSON.parse(data.toString());
-                this.emit(parsed.event, parsed.payload);
+                if (parsed && typeof parsed.type === 'string')
+                    this.emit('message', parsed);
+                else if (typeof parsed?.event === 'string')
+                    this.emit(parsed.event, parsed.payload);
             }
-            catch (e) {
-                // Drop malformed frame
+            catch {
+                this.emit('system:error', { error: 'Invalid server frame' });
             }
         });
-        this.ws.on('close', () => this.handleDisconnect());
-        this.ws.on('error', () => this.handleDisconnect());
-    }
-    handleDisconnect() {
-        if (this.reconnectAttempts < this.maxReconnectAttempts) {
-            const delay = Math.pow(2, this.reconnectAttempts) * 1000;
-            this.reconnectAttempts++;
-            setTimeout(() => this.connect(), delay);
-        }
-        else {
-            this.emit('system:error', { error: 'Max reconnect attempts reached' });
-        }
+        ws.on('error', () => this.emit('system:error', { error: 'Connection failed' }));
+        ws.on('close', (code) => {
+            if (this.ws === ws)
+                this.ws = null;
+            if (this.stopped || code === 1008 || this.timer)
+                return;
+            if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+                this.emit('system:error', { error: 'Max reconnect attempts reached' });
+                return;
+            }
+            const delay = 1000 * 2 ** this.reconnectAttempts++;
+            this.timer = setTimeout(() => { this.timer = undefined; this.connect(); }, delay);
+        });
     }
     subscribe(event, callback) {
-        const cbs = this.callbacks.get(event) || [];
-        cbs.push(callback);
-        this.callbacks.set(event, cbs);
+        this.callbacks.set(event, [...(this.callbacks.get(event) ?? []), callback]);
     }
     publish(event, payload) {
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({ event, payload }));
-        }
-        else {
+        this.send({ event, payload });
+    }
+    publishMessage(msg) {
+        this.send({ message_id: randomUUID(), incident_id: 'GLOBAL_INCIDENT', source: 'UNKNOWN',
+            target: 'STANDALONE', type: 'EVENT', permission: [], signature: '', timestamp: Date.now(),
+            payload: {}, ...msg });
+    }
+    send(message) {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN)
             throw new Error('WebSocket is not connected');
-        }
+        this.ws.send(JSON.stringify(message));
     }
     emit(event, data) {
-        const cbs = this.callbacks.get(event);
-        if (cbs) {
-            cbs.forEach(cb => cb(data));
-        }
+        this.callbacks.get(event)?.forEach(cb => cb(data));
     }
     disconnect() {
-        if (this.ws) {
-            this.ws.close();
-        }
+        this.stopped = true;
+        if (this.timer)
+            clearTimeout(this.timer);
+        this.timer = undefined;
+        this.ws?.close();
     }
 }
 //# sourceMappingURL=ws-client.js.map

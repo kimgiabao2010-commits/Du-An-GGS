@@ -1,9 +1,8 @@
 export declare class CliWorkerDaemon {
-    private eventBus;
-    private signer;
+    private wsClient;
     private reconScanner;
-    private prDispatcher;
     constructor();
+    private isSafeCommand;
     private initializeListeners;
     run(): void;
 }

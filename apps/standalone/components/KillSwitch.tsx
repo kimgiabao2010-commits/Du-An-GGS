@@ -1,39 +1,30 @@
 'use client';
+import { OctagonX } from 'lucide-react';
 import { useState } from 'react';
 
 export default function KillSwitch() {
   const [status, setStatus] = useState('');
   const [pending, setPending] = useState(false);
   const halt = () => {
-    if (!window.confirm('Dừng worker và chặn task mới? Không cách ly toàn bộ mạng.')) return;
-    setPending(true);
-    setStatus('Đang chờ backend xác nhận…');
-    const ws = new WebSocket('ws://localhost:4000');
-    let acknowledged = false;
+    if (!window.confirm('Stop workers and block new tasks? This does not isolate the entire network.')) return;
+    setPending(true); setStatus('Waiting for backend acknowledgement.');
+    const ws = new WebSocket('ws://localhost:4000'); let acknowledged = false;
     const timeout = setTimeout(() => ws.close(), 5000);
-    ws.onopen = () => ws.send(JSON.stringify({ type: 'COMMAND', message_id: crypto.randomUUID(),
-      incident_id: crypto.randomUUID(), timestamp: Date.now(), payload: { action: 'trigger_killswitch' } }));
+    ws.onopen = () => ws.send(JSON.stringify({ type: 'COMMAND', message_id: crypto.randomUUID(), incident_id: crypto.randomUUID(), timestamp: Date.now(), payload: { action: 'trigger_killswitch' } }));
     ws.onmessage = event => {
       try {
         const message = JSON.parse(event.data);
-        if (message.type === 'STATUS' && message.payload?.source === 'HALTED') {
-          acknowledged = true;
-          setStatus('Backend đã chặn task mới và yêu cầu dừng worker; chưa xác nhận mọi worker đã dừng.');
-          ws.close();
-        }
-      } catch { /* Ignore unrelated malformed status. */ }
+        if (message.type === 'STATUS' && message.payload?.source === 'HALTED') { acknowledged = true; setStatus('Backend blocked new tasks and requested worker shutdown.'); ws.close(); }
+      } catch { /* Ignore invalid status frames. */ }
     };
-    ws.onclose = () => {
-      clearTimeout(timeout); setPending(false);
-      if (!acknowledged) setStatus('Chưa xác nhận dừng. Kiểm tra đăng nhập và backend.');
-    };
-    ws.onerror = () => setStatus('Không kết nối được backend.');
+    ws.onerror = () => setStatus('Unable to reach the backend.');
+    ws.onclose = () => { clearTimeout(timeout); setPending(false); if (!acknowledged) setStatus('Stop is not acknowledged. Check authentication and backend status.'); };
   };
-  return <section>
-    <button disabled={pending} onClick={halt} style={{ background: '#d32f2f', color: 'white', padding: 12, borderRadius: 8 }}>
-      {pending ? 'Đang gửi…' : 'Trigger Kill-Switch'}
-    </button>
-    <p role="status">{status}</p>
-    <small>Yêu cầu phiên quản trị. Chưa tích hợp xác thực bước hai.</small>
+  return <section className="control-card">
+    <div className="control-heading"><h3><OctagonX size={15} aria-hidden="true" />Emergency stop</h3><span className="badge badge-danger">Restricted</span></div>
+    <p className="control-copy">Block new tasks in Command Center and request cancellation of active worker jobs.</p>
+    <button className="button-danger" disabled={pending} onClick={halt}>{pending ? 'Requesting stop…' : 'Activate kill switch'}</button>
+    <p className="danger-status" role="status">{status}</p>
+    <p className="control-note">Requires an administrator session. Distributed acknowledgement and production MFA are not connected.</p>
   </section>;
 }

@@ -1,98 +1,38 @@
 {
   "version": "2.0.0",
-  "options": {
-    "shell": {
-      "executable": "cmd.exe",
-      "args": ["/d", "/c"]
-    }
-  },
   "tasks": [
     {
-      "label": "🚀 Fast Boot: Chạy Toàn Bộ ASQ-Engine",
-      "dependsOn": [
-        "🌐 Web: Start Next.js Frontend",
-        "⚙️ API: Start Standalone Command Center",
-        "👷 Worker: Start CLI Sandbox Worker",
-        "💻 IDE: Start Threat Hunter Agent"
-      ],
-      "dependsOrder": "parallel",
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      },
+      "label": "GSS: Run local stack",
+      "type": "process",
+      "command": "npm.cmd",
+      "args": ["run", "dev"],
+      "group": { "kind": "build", "isDefault": true },
       "problemMatcher": [],
       "presentation": {
         "reveal": "always",
-        "panel": "new"
-      }
+        "focus": true,
+        "panel": "dedicated",
+        "clear": true,
+        "showReuseMessage": true
+      },
+      "runOptions": { "instanceLimit": 1 }
     },
     {
-      "label": "🔥 Full Setup & Boot (Install + Build + Run)",
-      "dependsOn": [
-        "📦 Setup: Cài đặt thư viện (npm install)",
-        "🔨 Setup: Biên dịch dự án (npm run build)",
-        "🚀 Fast Boot: Chạy Toàn Bộ ASQ-Engine"
-      ],
+      "label": "GSS: Check before running",
+      "type": "process",
+      "command": "npm.cmd",
+      "args": ["run", "dev:check"],
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "GSS: Build + typecheck + test",
+      "dependsOn": ["GSS: Build", "GSS: Typecheck", "GSS: Test"],
       "dependsOrder": "sequence",
       "problemMatcher": []
     },
-    {
-      "label": "📦 Setup: Cài đặt thư viện (npm install)",
-      "type": "shell",
-      "command": "npm install",
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared"
-      }
-    },
-    {
-      "label": "🔨 Setup: Biên dịch dự án (npm run build)",
-      "type": "shell",
-      "command": "npm run build",
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared"
-      }
-    },
-    {
-      "label": "🌐 Web: Start Next.js Frontend",
-      "type": "shell",
-      "command": "npm run dev --prefix apps/standalone",
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated",
-        "group": "asq-services"
-      }
-    },
-    {
-      "label": "⚙️ API: Start Standalone Command Center",
-      "type": "shell",
-      "command": "npm run start:standalone",
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated",
-        "group": "asq-services"
-      }
-    },
-    {
-      "label": "👷 Worker: Start CLI Sandbox Worker",
-      "type": "shell",
-      "command": "npm run start:worker",
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated",
-        "group": "asq-services"
-      }
-    },
-    {
-      "label": "💻 IDE: Start Threat Hunter Agent",
-      "type": "shell",
-      "command": "npm run start:ide",
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated",
-        "group": "asq-services"
-      }
-    }
+    { "label": "GSS: Build", "type": "process", "command": "npm.cmd", "args": ["run", "build"], "problemMatcher": [] },
+    { "label": "GSS: Typecheck", "type": "process", "command": "npm.cmd", "args": ["run", "typecheck"], "problemMatcher": [] },
+    { "label": "GSS: Test", "type": "process", "command": "npm.cmd", "args": ["run", "test"], "problemMatcher": [] }
   ]
 }

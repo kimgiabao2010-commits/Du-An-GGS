@@ -2,6 +2,22 @@
 
 Chỉ dành cho máy phát triển được phép. Không mở cổng ra Internet. Dữ liệu trên dashboard có phần mô phỏng; hệ thống chưa hỗ trợ production login/deployment.
 
+## Chạy nhanh trong VS Code
+
+1. Mở đúng thư mục repository trong VS Code.
+2. Nhấn `Ctrl+Shift+B`.
+3. Task mặc định `ASQ: Chạy toàn bộ local stack` sẽ bật Command Center, CLI worker, IDE agent và Web UI trong cùng một terminal.
+4. Terminal sẽ in URL, username và password tạm của phiên. Mở `http://localhost:3000` rồi đăng nhập bằng thông tin đó.
+5. Nhấn `Ctrl+C` trong terminal task để dừng toàn bộ stack. Nếu VS Code hỏi chọn build task, chọn `ASQ: Chạy toàn bộ local stack`.
+
+Launcher ưu tiên credential hợp lệ trong `.env`. Nếu chưa cấu hình, nó tạo credential ngẫu nhiên chỉ trong bộ nhớ và không ghi xuống ổ đĩa. Không chia sẻ nội dung terminal. Không có `OPENAI_API_KEY` thì giao diện và worker vẫn khởi động nhưng yêu cầu dùng model sẽ trả `LLM_UNAVAILABLE`.
+
+## Context budget cho LLM
+
+`ASQ_CONTEXT_MAX_TOKENS` (mặc định `4096`) là hard limit cho input không tin cậy trước khi gửi tới provider. Router quarantine text giống prompt injection, redact secret phổ biến, giữ indicator/event reference và ghi telemetry tổng số token; không ghi raw prompt hay secret vào log. Giảm xuống `1024` khi triage log volume lớn, nhưng không dùng cơ chế này thay cho evidence/provenance trong database.
+
+Muốn kiểm tra cấu hình mà chưa khởi động dịch vụ: mở Command Palette → `Tasks: Run Task` → `ASQ: Kiểm tra trước khi chạy`. Tác vụ `ASQ: Build + typecheck + test` dùng để kiểm chứng source, không khởi động ứng dụng.
+
 ## Kiểm chứng
 
 Tại thư mục root, trên Windows dùng `npm.cmd` nếu PowerShell chặn wrapper `npm.ps1`:

@@ -32,4 +32,22 @@ export interface SandboxVerificationResult {
     unitTestsPassed: boolean;
     pullRequestUrl?: string;
 }
+export declare enum NodeRole {
+    SIEM = "SIEM",
+    STANDALONE = "STANDALONE",
+    IDE_AGENT = "IDE_AGENT",
+    CLI_DAEMON = "CLI_DAEMON",
+    BROADCAST = "BROADCAST"
+}
+export interface ASQMessage<T = any> {
+    message_id: string;
+    incident_id: string;
+    source: NodeRole | string;
+    target: NodeRole | string;
+    type: 'EVENT' | 'TASK' | 'RESULT' | 'EVIDENCE' | 'COMMAND' | 'STATUS' | 'AUDIT';
+    permission: string[];
+    signature: string;
+    timestamp: number;
+    payload: T;
+}
 //# sourceMappingURL=index.d.ts.map

@@ -10,16 +10,16 @@ export class ModelTieringRouter {
      * Liên thông với FinOps API để Fall-back (Hạ cấp) khi nghẽn tín hiệu.
      */
     routeToModel(severity) {
-        let suggestedTier = 'Gemini Flash-Lite';
+        let suggestedTier = 'gpt-5.6-luna';
         if (severity === 'CRITICAL' || severity === 'HIGH') {
-            suggestedTier = 'Gemini Pro'; // Lỗ hổng sâu cần Pro soi
+            suggestedTier = 'gpt-6-astra'; // Lỗ hổng sâu cần Astra soi
         }
         else if (severity === 'MEDIUM') {
-            suggestedTier = 'Gemini Flash';
+            suggestedTier = 'gpt-5.6-terra';
         }
         // Xin ý kiến chốt chặn FinOps
         const finopsTier = this.finops.suggestModelTier();
-        const tierRank = { 'Gemini Flash-Lite': 1, 'Gemini Flash': 2, 'Gemini Pro': 3 };
+        const tierRank = { 'gpt-5.6-luna': 1, 'gpt-5.6-terra': 2, 'gpt-6-astra': 3 };
         // Chọn cấp độ thấp nhất giữa "Điều mức độ cần" và "Quy định tài chính"
         const finalTier = tierRank[finopsTier] < tierRank[suggestedTier] ? finopsTier : suggestedTier;
         console.log(`[ModelTieringRouter] Request: ${severity} | Nguyện vọng: ${suggestedTier} | FinOps Chốt hạn: ${finopsTier} | => Model Chạy Cuối: ${finalTier}`);

@@ -15,7 +15,7 @@ export class ASQClient {
     blast;
     constructor(options) {
         this.ws = new ASQWebSocketClient(options.wsUrl || 'ws://localhost:4000', options.token);
-        this.grpc = new ASQgRPCClient(options.grpcUrl || 'localhost:50051');
+        this.grpc = new ASQgRPCClient(options.grpcUrl || 'localhost:50051', options.grpcMode);
         this.rule = new RuleSyncModule(this.ws);
         this.grafana = new GrafanaSyncModule(options.grafanaUrl || 'http://localhost:3000', options.grafanaToken || '');
         this.security = new SecurityOpsModule(this.ws);
@@ -28,6 +28,7 @@ export class ASQClient {
     }
     disconnect() {
         this.ws.disconnect();
+        this.grpc.disconnect();
     }
 }
 //# sourceMappingURL=asq-client.js.map

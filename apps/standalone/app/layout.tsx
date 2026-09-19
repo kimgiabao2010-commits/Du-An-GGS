@@ -1,9 +1,10 @@
 import './globals.css';
 import type { Metadata } from 'next';
+import AppShell from '../components/AppShell';
 
 export const metadata: Metadata = {
-  title: 'ASQ-Engine Central',
-  description: 'Autonomous SecOps & AI Reasoning Dashboard',
+  title: { default: 'GSS Agent Operations', template: '%s · GSS' },
+  description: 'Evidence-first AI agent operations and execution workspace',
 };
 
 export default function RootLayout({
@@ -13,11 +14,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>
-        <main style={{ padding: '2rem' }}>
-          {children}
-        </main>
-      </body>
+      <body><AppShell>{children}</AppShell></body>
     </html>
   );
 }

@@ -39,13 +39,13 @@ export class FinOpsGuardrail {
         const budgetUsedRatio = this.consumedIn5Hours / this.fiveHourBudget;
         // Nếu dùng hơn 90% budget hoặc bị rate limit nghiêm trọng (TPM thấp)
         if (budgetUsedRatio >= 0.90 || this.rpmTokens < 10) {
-            return 'Gemini Flash-Lite';
+            return 'gpt-5.6-luna';
         }
         // Nếu dùng hơn 70% budget hoặc có nguy cơ hết RPM
         if (budgetUsedRatio >= 0.70 || this.rpmTokens < 30) {
-            return 'Gemini Flash';
+            return 'gpt-5.6-terra';
         }
-        return 'Gemini Pro';
+        return 'gpt-6-astra';
     }
     /**
      * @param amount Số Token dự kiến dùng

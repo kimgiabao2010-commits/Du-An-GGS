@@ -1,213 +1,57 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import { Bot, Circle, LockKeyhole, Send, UserRound } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+
+type Message = { id: string; source: string; text: string; timestamp: string; user?: boolean };
 
 export default function OrchestratorPrompt() {
-    const [messages, setMessages] = useState<{ id: number, source: string, text: string, timestamp: string }[]>([]);
-    const [inputValue, setInputValue] = useState('');
-    const [username, setUsername] = useState('');
-    const [password, setPassword] = useState('');
-    const [loginStatus, setLoginStatus] = useState('');
-    const [sessionVersion, setSessionVersion] = useState(0);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [inputValue, setInputValue] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [loginStatus, setLoginStatus] = useState('Not authenticated');
+  const [sessionVersion, setSessionVersion] = useState(0);
+  const [connected, setConnected] = useState(false);
+  const ws = useRef<WebSocket | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    const login = async () => {
-        try {
-            const response = await fetch('/api/auth', { method: 'POST',
-                headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
-            const body = await response.json();
-            setPassword('');
-            setLoginStatus(response.ok ? 'Đã đăng nhập' : body.error);
-            if (response.ok) setSessionVersion(v => v + 1);
-        } catch { setLoginStatus('Không kết nối được máy chủ đăng nhập.'); }
-    };
-    const ws = useRef<WebSocket | null>(null);
-    const messagesEndRef = useRef<HTMLDivElement>(null);
+  const addMessage = (source: string, text: string, user = false) => setMessages(previous => [...previous, { id: crypto.randomUUID(), source, text, user, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
+  const login = async () => {
+    try {
+      const response = await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
+      const body = await response.json();
+      setPassword('');
+      if (!response.ok) return setLoginStatus(body.error || 'Authentication failed');
+      setLoginStatus('Administrator session authenticated');
+      setSessionVersion(version => version + 1);
+    } catch { setLoginStatus('Authentication server is unavailable'); }
+  };
 
-    // Auto-scroll to bottom
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => {
+    setMessages([{ id: crypto.randomUUID(), source: 'GSS System', timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), text: 'Ready for a bounded request. Results are only considered evidence when the backend links them to a task and incident.' }]);
+    const socket = new WebSocket('ws://localhost:4000');
+    ws.current = socket;
+    socket.onopen = () => { setConnected(true); setLoginStatus(previous => previous.startsWith('Administrator') ? `${previous} · Command Center online` : 'Observer connected · sign in to operate'); };
+    socket.onmessage = event => { try { const data = JSON.parse(event.data); if (data.type === 'STATUS' && data.payload?.action === 'ui_flash') addMessage(data.payload.source, data.payload.message); } catch { /* Never render malformed frames as evidence. */ } };
+    socket.onclose = () => { setConnected(false); setLoginStatus('Command Center disconnected'); };
+    socket.onerror = () => setConnected(false);
+    return () => socket.close();
+  }, [sessionVersion]);
 
-    useEffect(() => {
-        scrollToBottom();
-    }, [messages]);
+  const send = () => {
+    const command = inputValue.trim();
+    if (!command || ws.current?.readyState !== WebSocket.OPEN) return;
+    addMessage('You', command, true);
+    ws.current.send(JSON.stringify({ message_id: crypto.randomUUID(), incident_id: crypto.randomUUID(), timestamp: Date.now(), type: 'COMMAND', payload: { action: 'commander_prompt', content: command } }));
+    setInputValue('');
+  };
 
-    useEffect(() => {
-        // Khởi tạo tin nhắn chào mừng
-        setMessages([{
-            id: Date.now(),
-            source: 'System',
-            text: 'Xin chào Chỉ huy. Tôi là hệ thống điều phối AI (Qwen/Llama) của ASQ-Engine. Tôi có thể giúp gì cho ngài trong việc vận hành hạ tầng SOC hôm nay?',
-            timestamp: new Date().toLocaleTimeString()
-        }]);
-
-        // Kết nối tới Cổng 4000 của CommandCenter
-        console.log("Connecting to Orchestrator Ws at ws://localhost:4000");
-        ws.current = new WebSocket('ws://localhost:4000');
-
-        ws.current.onopen = () => {
-            setLoginStatus('Đã kết nối Command Center');
-        };
-
-        ws.current.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                if (data.type === 'STATUS' && data.payload?.action === 'ui_flash') {
-                    addMessage(data.payload.source, data.payload.message);
-                }
-            } catch (e) {
-                console.error("Lỗi tin nhắn:", e);
-            }
-        };
-
-        ws.current.onclose = () => {
-             addMessage('System', '⚠️ Mất kết nối tới máy chủ Chỉ huy (Port 4000). Vui lòng kiểm tra lại dịch vụ Backend.');
-        };
-
-        return () => {
-            if (ws.current) {
-                ws.current.close();
-            }
-        };
-    }, [sessionVersion]);
-
-    const addMessage = (source: string, text: string) => {
-        setMessages(prev => [...prev, {
-            id: Date.now() + Math.random(),
-            source,
-            text,
-            timestamp: new Date().toLocaleTimeString()
-        }]);
-    };
-
-    const handleSend = () => {
-        if (inputValue.trim() === '') return;
-        
-        const cmd = inputValue.trim();
-        addMessage('CISO_Admin', cmd);
-
-        if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-            ws.current.send(JSON.stringify({
-                message_id: crypto.randomUUID(), incident_id: crypto.randomUUID(), timestamp: Date.now(),
-                type: 'COMMAND', payload: { action: 'commander_prompt', content: cmd }
-            }));
-        }
-
-        setInputValue('');
-    };
-
-    return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', maxWidth: '900px', margin: '0 auto' }}>
-            
-            {/* Vùng Lịch Sử Chat (Flex 1 để đẩy xuống đáy) */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: 12 }}>
-                <input aria-label="Tên đăng nhập" placeholder="Tên đăng nhập" value={username} onChange={e => setUsername(e.target.value)} />
-                <input aria-label="Mật khẩu" type="password" placeholder="Mật khẩu" value={password} onChange={e => setPassword(e.target.value)} />
-                <button onClick={login}>Đăng nhập điều khiển</button>
-                <span role="status">{loginStatus}</span>
-            </div>
-            <div className="hide-scrollbar" style={{ 
-                flex: 1, 
-                overflowY: 'auto', 
-                display: 'flex', 
-                flexDirection: 'column', 
-                gap: '24px', 
-                padding: '24px 24px 20px 24px'
-            }}>
-                {messages.map((msg) => {
-                    const isUser = msg.source === 'CISO_Admin';
-                    
-                    return (
-                        <div key={msg.id} className="animate-fade-in" style={{ 
-                            display: 'flex', 
-                            flexDirection: isUser ? 'row-reverse' : 'row',
-                            gap: '12px',
-                            alignItems: 'flex-end'
-                        }}>
-                            {/* Khung Chat iMessage Style */}
-                            <div style={{
-                                maxWidth: '75%',
-                                background: isUser ? 'var(--chat-user-bg)' : 'var(--chat-ai-bg)',
-                                borderRadius: isUser ? '20px 20px 4px 20px' : '20px 20px 20px 4px',
-                                padding: '12px 18px',
-                                color: 'var(--text-primary)',
-                                fontSize: '0.95rem',
-                                lineHeight: '1.5',
-                                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                            }}>
-                                {!isUser && (
-                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px', fontWeight: 600 }}>
-                                        {msg.source}
-                                    </div>
-                                )}
-                                <div style={{ 
-                                    whiteSpace: 'pre-wrap', 
-                                    fontFamily: msg.source === 'CISO_Admin' ? 'inherit' : '"JetBrains Mono", ui-monospace, monospace'
-                                }}>
-                                    {msg.text}
-                                </div>
-                            </div>
-                        </div>
-                    );
-                })}
-                <div ref={messagesEndRef} />
-            </div>
-
-            {/* Vùng Nhập Input (Nằm Tĩnh Ở Đáy) */}
-            <div style={{ 
-                flex: 'none',
-                padding: '16px 24px 24px 24px',
-                width: '100%'
-            }}>
-                <div style={{ 
-                    display: 'flex', 
-                    gap: '12px', 
-                    padding: '8px 8px 8px 20px',
-                    borderRadius: '30px',
-                    background: 'rgba(28, 28, 30, 0.8)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-                    alignItems: 'center'
-                }}>
-                    <input
-                        type="text"
-                        value={inputValue}
-                        onChange={(e) => setInputValue(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleSend(); }}
-                        placeholder="Yêu cầu hệ thống SOC (VD: 'Inject Zero-day')..."
-                        style={{ 
-                            flex: 1, 
-                            background: 'transparent', 
-                            border: 'none', 
-                            color: '#ffffff', 
-                            fontSize: '1rem',
-                            outline: 'none',
-                        }}
-                    />
-                    <button
-                        onClick={handleSend}
-                        style={{ 
-                            background: inputValue.trim() ? '#ffffff' : 'rgba(255,255,255,0.1)', 
-                            color: inputValue.trim() ? '#000000' : 'rgba(255,255,255,0.4)', 
-                            border: 'none', 
-                            borderRadius: '50%', 
-                            width: '36px', 
-                            height: '36px', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            justifyContent: 'center',
-                            cursor: inputValue.trim() ? 'pointer' : 'default', 
-                            transition: 'all 0.2s',
-                            fontWeight: 'bold'
-                        }}
-                    >
-                        ↑
-                    </button>
-                </div>
-                <div style={{ textAlign: 'center', marginTop: '12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    AI Orchestrator có thể mắc sai lầm. Hãy kiểm soát vòng lặp.
-                </div>
-            </div>
-        </div>
-    );
+  return <section className="command-panel panel">
+    <div className="command-status"><div><span className={`status-dot ${connected ? 'success' : 'neutral'}`} /><strong>Orchestrator channel</strong><span>{connected ? 'Connected' : 'Offline'}</span></div><span className="subtle-label">WebSocket · localhost:4000</span></div>
+    <div className="auth-panel"><div className="auth-title"><LockKeyhole size={16} /><span>Administrator session</span></div><div className="auth-row"><input className="field" aria-label="Username" autoComplete="username" placeholder="Username" value={username} onChange={event => setUsername(event.target.value)} /><input className="field" aria-label="Password" autoComplete="current-password" type="password" placeholder="Password" value={password} onChange={event => setPassword(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') login(); }} /><button className="button primary" onClick={login}>Sign in</button></div><p className="auth-help" role="status">{loginStatus}</p></div>
+    <div className="message-feed" aria-live="polite">{messages.map(message => <article className={`message${message.user ? ' user' : ''}`} key={message.id}><div className="message-avatar" aria-hidden="true">{message.user ? <UserRound size={15} /> : <Bot size={16} />}</div><div className="message-bubble"><div className="message-meta">{message.source}<Circle size={3} fill="currentColor" />{message.timestamp}</div><div className="message-body">{message.text}</div></div></article>)}<div ref={messagesEndRef} /></div>
+    <div className="composer-wrap"><div className="composer"><textarea rows={2} className="composer-input" aria-label="Orchestration request" value={inputValue} onChange={event => setInputValue(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(); } }} placeholder="Describe a bounded, read-only task…" /><button className="send-button" aria-label="Send request" disabled={!inputValue.trim() || !connected} onClick={send}><Send size={17} /></button></div><p className="composer-hint">Enter to send · Shift + Enter for a new line · Model output never grants permission.</p></div>
+  </section>;
 }
