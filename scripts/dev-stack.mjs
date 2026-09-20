@@ -7,6 +7,7 @@ import { connect } from 'node:net';
 
 const dryRun = process.argv.includes('--dry-run');
 const now = Date.now();
+const root = fileURLToPath(new URL('../', import.meta.url));
 const secret = process.env.ASQ_JWT_SECRET && process.env.ASQ_JWT_SECRET.length >= 32
   ? process.env.ASQ_JWT_SECRET : randomBytes(32).toString('base64url');
 const username = process.env.ASQ_ADMIN_USERNAME || 'admin-local';
@@ -26,11 +27,13 @@ const runtimeEnv = {
   ASQ_ADMIN_PASSWORD: password,
   ASQ_WEB_ORIGIN: process.env.ASQ_WEB_ORIGIN || 'http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001',
   ASQ_WS_URL: process.env.ASQ_WS_URL || 'ws://127.0.0.1:4000',
+  ASQ_LOCAL_RUNTIME: 'true',
+  GSS_DATA_DIR: process.env.GSS_DATA_DIR || resolve(root, 'data'),
   ASQ_WORKER_TOKEN: token('cli-worker-agent', 'CLI_DAEMON'),
   ASQ_IDE_TOKEN: token('ide-worker-agent', 'IDE_AGENT'),
+  ASQ_SIEM_TOKEN: token('siem-worker-agent', 'SIEM'),
 };
 
-const root = fileURLToPath(new URL('../', import.meta.url));
 const tsRuntime = ['--loader', 'ts-node/esm'];
 const nextBin = resolve(root, 'node_modules/next/dist/bin/next');
 const webRoot = resolve(root, 'apps/standalone');
@@ -38,6 +41,7 @@ const services = [
   ['Command Center', process.execPath, [...tsRuntime, resolve(root, 'services/standalone/src/main.ts')], root],
   ['CLI worker', process.execPath, [...tsRuntime, resolve(root, 'services/cli-worker/src/main.ts')], root],
   ['IDE agent', process.execPath, [...tsRuntime, resolve(root, 'services/ide-reasoning/src/main.ts')], root],
+  ['SIEM worker', process.execPath, [...tsRuntime, resolve(root, 'services/siem-worker/src/main.ts')], root],
   ['Web UI', process.execPath, [nextBin, 'start', '-p', '3000'], webRoot],
 ];
 
@@ -53,22 +57,24 @@ function portInUse(port) {
 const occupied = [];
 for (const port of [3000, 4000]) if (await portInUse(port)) occupied.push(port);
 if (occupied.length && !dryRun) {
-  console.error(`Không thể khởi động: cổng ${occupied.join(', ')} đang được tiến trình khác sử dụng.`);
-  console.error('Dừng phiên GSS/Next cũ trong terminal bằng Ctrl+C rồi nhấn Ctrl+Shift+B lại.');
+  console.error(`Cannot start: port ${occupied.join(', ')} is already in use.`);
+  console.error('Stop the previous GSS/Next terminal with Ctrl+C, then press Ctrl+Shift+B again.');
   process.exit(1);
 }
 
 if (dryRun) {
   console.log('\nGSS local stack check');
   console.log('URL: http://localhost:3000');
-  if (process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY) console.log('OK: đã cấu hình LLM provider (OpenAI/Groq).');
-  console.log('OK: sẽ khởi động ' + services.map(([name]) => name).join(', '));
-  console.log(occupied.length ? `CẢNH BÁO: cổng đang bận: ${occupied.join(', ')}.` : 'OK: cổng 3000 và 4000 đang trống.');
-  if (!process.env.GROQ_API_KEY) console.log(process.env.OPENAI_API_KEY ? 'OK: đã có OPENAI_API_KEY.' : 'CẢNH BÁO: chưa có OPENAI_API_KEY hoặc GROQ_API_KEY; UI vẫn chạy nhưng router sẽ trả LLM_UNAVAILABLE.');
+  console.log(process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY ? 'OK: LLM provider configured.' : 'WARNING: no LLM provider; deterministic read-only intents still work.');
+  console.log('OK: will start ' + services.map(([name]) => name).join(', '));
+  console.log(process.env.GSS_CHRONICLE_PROJECT && process.env.GSS_CHRONICLE_LOCATION && process.env.GSS_CHRONICLE_INSTANCE && process.env.GSS_CHRONICLE_ENDPOINT
+    ? 'OK: Chronicle read-only worker configured.' : 'WARNING: Chronicle worker will remain disabled until its four GSS_CHRONICLE_* settings are configured.');
+  console.log(occupied.length ? `WARNING: occupied ports: ${occupied.join(', ')}.` : 'OK: ports 3000 and 4000 are available.');
+  console.log(process.env.DATABASE_URL ? 'OK: PostgreSQL persistence configured.' : 'WARNING: DATABASE_URL is not configured; runtime will be persistence-degraded and will not use SQLite.');
   process.exit(0);
 }
 
-console.log('Đang build Web UI ổn định (production local)…');
+console.log('Building a stable local production UI...');
 const webBuild = spawnSync(process.execPath, [nextBin, 'build'], {
   cwd: webRoot,
   env: runtimeEnv,
@@ -76,15 +82,16 @@ const webBuild = spawnSync(process.execPath, [nextBin, 'build'], {
   windowsHide: true,
 });
 if (webBuild.status !== 0) {
-  console.error('Build Web UI thất bại; chưa khởi động backend hoặc worker.');
+  console.error('Web UI build failed; backend and workers were not started.');
   process.exit(webBuild.status ?? 1);
 }
 
 console.log('\nGSS local stack');
 console.log('URL:      http://localhost:3000');
 console.log('Username: ' + username);
-console.log(hasConfiguredPassword ? 'Password: dùng ASQ_ADMIN_PASSWORD đã cấu hình trong .env' : 'Password: ' + password);
-console.log('Lưu ý: credential trên chỉ dành cho phiên local hiện tại.\n');
+console.log(hasConfiguredPassword ? 'Password: use ASQ_ADMIN_PASSWORD from .env' : 'Password: ' + password);
+console.log(process.env.DATABASE_URL ? 'Storage:  PostgreSQL' : 'Storage:  DEGRADED (configure DATABASE_URL for durable state)');
+console.log('These credentials are only for this local runtime.\n');
 
 const children = new Set();
 let stopping = false;
@@ -105,13 +112,13 @@ for (const [name, command, args, cwd] of services) {
   });
   children.add(child);
   child.on('error', error => {
-    console.error(`[${name}] Không khởi động được: ${error.message}`);
+    console.error(`[${name}] failed to start: ${error.message}`);
     stop(1);
   });
   child.on('exit', code => {
     children.delete(child);
     if (!stopping && code !== 0) {
-      console.error(`[${name}] đã dừng với mã ${code}. Đang dừng toàn bộ stack.`);
+      console.error(`[${name}] exited with code ${code}; stopping the full stack.`);
       stop(code ?? 1);
     }
   });

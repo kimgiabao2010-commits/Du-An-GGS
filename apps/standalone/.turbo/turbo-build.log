@@ -17,16 +17,16 @@
    Collecting build traces ...
 
 Route (app)                              Size     First Load JS
-┌ ○ /                                    188 B          97.4 kB
+┌ ○ /                                    3.05 kB         100 kB
 ├ ○ /_not-found                          873 B          88.2 kB
 ├ ○ /agents                              1.52 kB        88.8 kB
 ├ ƒ /api/auth                            0 B                0 B
 ├ ƒ /api/grafana/proxy                   0 B                0 B
-├ ○ /command                             5.15 kB        92.5 kB
+├ ○ /command                             138 B          87.4 kB
 ├ ○ /context                             1.52 kB        88.8 kB
 ├ ○ /evidence                            2.93 kB        90.2 kB
-├ ○ /executions                          188 B          97.4 kB
-├ ● /executions/[id]                     2.44 kB        99.6 kB
+├ ○ /executions                          185 B          97.4 kB
+├ ● /executions/[id]                     2.69 kB        99.9 kB
 ├   ├ /executions/EXE-8421
 ├   ├ /executions/EXE-8419
 ├   └ /executions/EXE-8418
@@ -35,7 +35,7 @@ Route (app)                              Size     First Load JS
 └ ○ /tasks                               1.97 kB        99.2 kB
 + First Load JS shared by all            87.3 kB
   ├ chunks/1dd3208c-d6804214a02e0ca9.js  53.6 kB
-  ├ chunks/528-4c010fb21bde0d4d.js       31.7 kB
+  ├ chunks/528-04725f5b0ea89598.js       31.7 kB
   └ other shared chunks (total)          1.96 kB
 
 

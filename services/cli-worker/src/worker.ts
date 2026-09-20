@@ -16,7 +16,8 @@ export class CliWorkerDaemon {
             const result = await this.executor.execute(data.payload);
             try {
                 this.wsClient.publishMessage({ source: 'CLI_DAEMON', type: 'EVIDENCE',
-                    incident_id: data.incident_id, payload: { ...result, content: result.status + ': ' + result.output } });
+                    incident_id: data.incident_id, payload: { ...result, action: data.payload?.action,
+                        content: result.status + ': ' + result.output } });
             } catch { /* Connection closed: never reinterpret lost delivery as success. */ }
         });
     }

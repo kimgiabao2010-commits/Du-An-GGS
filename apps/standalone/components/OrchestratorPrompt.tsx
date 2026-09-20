@@ -1,9 +1,9 @@
 'use client';
 
-import { Bot, Circle, LockKeyhole, Send, UserRound } from 'lucide-react';
+import { Bot, Circle, LockKeyhole, Plus, Send, UserRound } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
-type Message = { id: string; source: string; text: string; timestamp: string; user?: boolean };
+type Message = { id: string; source: string; text: string; timestamp: string; user?: boolean; taskId?: string };
 
 export default function OrchestratorPrompt() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -13,10 +13,20 @@ export default function OrchestratorPrompt() {
   const [loginStatus, setLoginStatus] = useState('Not authenticated');
   const [sessionVersion, setSessionVersion] = useState(0);
   const [connected, setConnected] = useState(false);
+  const [caseId, setCaseId] = useState('');
+  const [caseState, setCaseState] = useState('NEW');
   const ws = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const addMessage = (source: string, text: string, user = false) => setMessages(previous => [...previous, { id: crypto.randomUUID(), source, text, user, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
+  const addMessage = (source: string, text: string, user = false, taskId?: string) => setMessages(previous => [
+    ...previous,
+    { id: crypto.randomUUID(), source, text, user, taskId, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
+  ]);
+  const newCase = () => {
+    setCaseId(crypto.randomUUID());
+    setCaseState('NEW');
+    setMessages([{ id: crypto.randomUUID(), source: 'GSS Standalone', timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), text: 'New case created locally. Describe the alert, question, or evidence you want to investigate.' }]);
+  };
   const login = async () => {
     try {
       const response = await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
@@ -28,30 +38,38 @@ export default function OrchestratorPrompt() {
     } catch { setLoginStatus('Authentication server is unavailable'); }
   };
 
+  useEffect(() => { newCase(); }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
   useEffect(() => {
-    setMessages([{ id: crypto.randomUUID(), source: 'GSS System', timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), text: 'Ready for a bounded request. Results are only considered evidence when the backend links them to a task and incident.' }]);
     const socket = new WebSocket('ws://localhost:4000');
     ws.current = socket;
-    socket.onopen = () => { setConnected(true); setLoginStatus(previous => previous.startsWith('Administrator') ? `${previous} · Command Center online` : 'Observer connected · sign in to operate'); };
-    socket.onmessage = event => { try { const data = JSON.parse(event.data); if (data.type === 'STATUS' && data.payload?.action === 'ui_flash') addMessage(data.payload.source, data.payload.message); } catch { /* Never render malformed frames as evidence. */ } };
-    socket.onclose = () => { setConnected(false); setLoginStatus('Command Center disconnected'); };
+    socket.onopen = () => { setConnected(true); setLoginStatus(previous => previous.startsWith('Administrator') ? `${previous} - control plane online` : 'Observer connected - sign in to operate'); };
+    socket.onmessage = event => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type !== 'STATUS' || data.payload?.action !== 'ui_flash') return;
+        if (data.payload.caseId && data.payload.caseId !== caseId) return;
+        if (data.payload.caseState) setCaseState(data.payload.caseState);
+        addMessage(data.payload.source, data.payload.message, false, data.payload.taskId);
+      } catch { /* Malformed frames are never rendered as evidence. */ }
+    };
+    socket.onclose = () => { setConnected(false); setLoginStatus('Control plane disconnected'); };
     socket.onerror = () => setConnected(false);
     return () => socket.close();
-  }, [sessionVersion]);
+  }, [sessionVersion, caseId]);
 
   const send = () => {
     const command = inputValue.trim();
-    if (!command || ws.current?.readyState !== WebSocket.OPEN) return;
+    if (!command || !caseId || ws.current?.readyState !== WebSocket.OPEN) return;
     addMessage('You', command, true);
-    ws.current.send(JSON.stringify({ message_id: crypto.randomUUID(), incident_id: crypto.randomUUID(), timestamp: Date.now(), type: 'COMMAND', payload: { action: 'commander_prompt', content: command } }));
+    ws.current.send(JSON.stringify({ message_id: crypto.randomUUID(), incident_id: caseId, timestamp: Date.now(), type: 'COMMAND', payload: { action: 'commander_prompt', content: command } }));
     setInputValue('');
   };
 
   return <section className="command-panel panel">
-    <div className="command-status"><div><span className={`status-dot ${connected ? 'success' : 'neutral'}`} /><strong>Orchestrator channel</strong><span>{connected ? 'Connected' : 'Offline'}</span></div><span className="subtle-label">WebSocket · localhost:4000</span></div>
-    <div className="auth-panel"><div className="auth-title"><LockKeyhole size={16} /><span>Administrator session</span></div><div className="auth-row"><input className="field" aria-label="Username" autoComplete="username" placeholder="Username" value={username} onChange={event => setUsername(event.target.value)} /><input className="field" aria-label="Password" autoComplete="current-password" type="password" placeholder="Password" value={password} onChange={event => setPassword(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') login(); }} /><button className="button primary" onClick={login}>Sign in</button></div><p className="auth-help" role="status">{loginStatus}</p></div>
-    <div className="message-feed" aria-live="polite">{messages.map(message => <article className={`message${message.user ? ' user' : ''}`} key={message.id}><div className="message-avatar" aria-hidden="true">{message.user ? <UserRound size={15} /> : <Bot size={16} />}</div><div className="message-bubble"><div className="message-meta">{message.source}<Circle size={3} fill="currentColor" />{message.timestamp}</div><div className="message-body">{message.text}</div></div></article>)}<div ref={messagesEndRef} /></div>
-    <div className="composer-wrap"><div className="composer"><textarea rows={2} className="composer-input" aria-label="Orchestration request" value={inputValue} onChange={event => setInputValue(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(); } }} placeholder="Describe a bounded, read-only task…" /><button className="send-button" aria-label="Send request" disabled={!inputValue.trim() || !connected} onClick={send}><Send size={17} /></button></div><p className="composer-hint">Enter to send · Shift + Enter for a new line · Model output never grants permission.</p></div>
+    <div className="command-status"><div><span className={`status-dot ${connected ? 'success' : 'neutral'}`} /><strong>Standalone case</strong><span>{caseId ? caseId.slice(0, 8) : 'creating'}</span></div><div className="case-status-actions"><span className="subtle-label">{caseState}</span><button className="button secondary compact" onClick={newCase}><Plus size={14} />New case</button></div></div>
+    <div className="auth-panel"><div className="auth-title"><LockKeyhole size={16} /><span>Local operator session</span></div><div className="auth-row"><input className="field" aria-label="Username" autoComplete="username" placeholder="Username" value={username} onChange={event => setUsername(event.target.value)} /><input className="field" aria-label="Password" autoComplete="current-password" type="password" placeholder="Password" value={password} onChange={event => setPassword(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') login(); }} /><button className="button primary" onClick={login}>Sign in</button></div><p className="auth-help" role="status">{loginStatus}</p></div>
+    <div className="message-feed" aria-live="polite">{messages.map(message => <article className={`message${message.user ? ' user' : ''}`} key={message.id}><div className="message-avatar" aria-hidden="true">{message.user ? <UserRound size={15} /> : <Bot size={16} />}</div><div className="message-bubble"><div className="message-meta">{message.source}<Circle size={3} fill="currentColor" />{message.timestamp}{message.taskId && <><Circle size={3} fill="currentColor" />{message.taskId.slice(0, 8)}</>}</div><div className="message-body">{message.text}</div></div></article>)}<div ref={messagesEndRef} /></div>
+    <div className="composer-wrap"><div className="composer"><textarea rows={2} className="composer-input" aria-label="SOC investigation request" value={inputValue} onChange={event => setInputValue(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(); } }} placeholder="Describe an alert, ask a SOC question, or request read-only evidence..." /><button className="send-button" aria-label="Send request" disabled={!inputValue.trim() || !connected} onClick={send}><Send size={17} /></button></div><p className="composer-hint">Enter to send - Shift + Enter for a new line - execution remains policy-bound and read-only.</p></div>
   </section>;
 }

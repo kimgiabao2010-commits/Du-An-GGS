@@ -1,12 +1,19 @@
 import { execFile, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { TokenSigner } from '@asq/sdk';
+import { TokenSigner, type CapabilityAction } from '@asq/sdk';
 
 export const instructionHash = (instruction: string) => createHash('sha256').update(instruction).digest('hex');
-export interface HostTask { taskId: string; incidentId: string; instruction: string; token: string }
+export interface HostTask { taskId: string; incidentId: string; instruction: string; token: string; action?: CapabilityAction }
 export interface HostResult { taskId: string; status: 'SUCCESS' | 'FAILED' | 'DENIED' | 'CANCELLED'; output: string }
 export type HostRunner = (file: string, args: string[], signal: AbortSignal) => Promise<string>;
+
+export const cliCapabilityInstructions: Partial<Record<CapabilityAction, string>> = {
+    inspect_hostname: 'hostname',
+    inspect_system: 'systeminfo',
+    inspect_network_config: 'ipconfig /all',
+    inspect_network_connections: 'netstat -ano',
+};
 
 export function parseReadOnlyCommand(instruction: string): { file: string; args: string[] } | null {
     const exact: Record<string, string[]> = {
@@ -46,6 +53,8 @@ export class ControlledExecutor {
         if (this.halted) return result('DENIED', 'Worker halted');
         if (!task || typeof task.instruction !== 'string' || !task.taskId || !task.incidentId)
             return result('DENIED', 'Invalid task');
+        if (task.action && cliCapabilityInstructions[task.action] !== task.instruction)
+            return result('DENIED', 'Capability and resolved command do not match');
         const claims = this.signer.verify(task.token);
         if (!claims || claims.role !== 'STANDALONE' || claims.agentId !== 'cli-worker-agent' ||
             !claims.permissions.includes('EXECUTE_RECON') || claims.taskId !== task.taskId ||

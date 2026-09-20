@@ -23,7 +23,7 @@ export class WsCommandServer extends EventEmitter {
                 const cookie = info.req.headers.cookie?.split(';').map(v => v.trim())
                     .find(v => v.startsWith('asq-control-token='))?.slice('asq-control-token='.length);
                 const claims = this.signer.verify(bearer ?? cookie ?? '');
-                if (!claims || !['CISO_Admin', 'CLI_DAEMON', 'IDE_AGENT'].includes(claims.role)) {
+                if (!claims || !['CISO_Admin', 'CLI_DAEMON', 'IDE_AGENT', 'SIEM'].includes(claims.role)) {
                     done(false, 401, 'Authentication required');
                     return;
                 }

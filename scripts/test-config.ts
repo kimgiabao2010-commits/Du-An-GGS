@@ -10,6 +10,7 @@ export default defineConfig({
     resolveId(source, importer) {
       if (source === '@asq/sdk') return resolve(root, 'packages/sdk/src/index.ts');
       if (source === '@asq/guardrails') return resolve(root, 'packages/guardrails/src/index.ts');
+      if (source === '@asq/persistence') return resolve(root, 'packages/persistence/src/index.ts');
       if (!importer || !source.startsWith('.') || !source.endsWith('.js')) return null;
       const path = resolve(dirname(importer.split('?')[0]), source.slice(0, -3));
       for (const ext of ['.ts', '.tsx']) if (existsSync(path + ext)) return path + ext;

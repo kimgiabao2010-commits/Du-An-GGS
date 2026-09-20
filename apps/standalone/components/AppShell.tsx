@@ -3,24 +3,23 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  Activity, Bot, Braces, ChevronRight, CircleDollarSign, Command,
+  Bot, Braces, ChevronRight, CircleDollarSign,
   FileCheck2, LayoutDashboard, ListChecks, Menu, RadioTower, ScrollText,
   Search, ShieldCheck, Workflow, X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 const navigation = [
-  { href: '/', label: 'Overview', icon: LayoutDashboard },
-  { href: '/tasks', label: 'Tasks', icon: ListChecks },
-  { href: '/executions', label: 'Executions', icon: Workflow },
-  { href: '/agents', label: 'Agents', icon: Bot },
+  { href: '/', label: 'SOC Console', icon: LayoutDashboard },
+  { href: '/tasks', label: 'Cases & Tasks', icon: ListChecks },
   { href: '/evidence', label: 'Evidence', icon: FileCheck2 },
-  { href: '/context', label: 'Cost & Context', icon: CircleDollarSign },
-  { href: '/logs', label: 'Logs', icon: ScrollText },
 ];
 
 const utilities = [
-  { href: '/command', label: 'Command Center', icon: Command },
+  { href: '/executions', label: 'Executions', icon: Workflow },
+  { href: '/agents', label: 'Agents', icon: Bot },
+  { href: '/context', label: 'Cost & Context', icon: CircleDollarSign },
+  { href: '/logs', label: 'Logs', icon: ScrollText },
   { href: '/siem', label: 'SIEM', icon: ShieldCheck },
 ];
 
@@ -53,15 +52,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return <div className="shell">
     <a className="skip-link" href="#main-content">Skip to content</a>
     <aside className={`shell-sidebar${open ? ' open' : ''}`} aria-label="Primary navigation">
-      <div className="shell-brand"><span className="shell-brand-mark"><Braces size={20} aria-hidden="true" /></span><div><strong>GSS</strong><span>Agent Operations</span></div></div>
+      <div className="shell-brand"><span className="shell-brand-mark"><Braces size={20} aria-hidden="true" /></span><div><strong>GSS</strong><span>Standalone SOC</span></div></div>
       <nav className="shell-nav">
         <p className="nav-label">Workspace</p>
         {navigation.map(renderLink)}
-        <p className="nav-label utility-label">Operate</p>
+        <p className="nav-label utility-label">Control Plane</p>
         {utilities.map(renderLink)}
       </nav>
       <div className="sidebar-foot">
-        <div className="environment-row"><span className="status-dot success" /><span><strong>Local staging</strong><small>Control plane reachable</small></span></div>
+        <div className="environment-row"><span className="status-dot info" /><span><strong>Local runtime</strong><small>Verify live status in console</small></span></div>
         <div className="source-label"><RadioTower size={14} aria-hidden="true" />Demo adapter</div>
       </div>
     </aside>
@@ -70,7 +69,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <header className="shell-topbar">
         <button className="icon-button mobile-menu" onClick={() => setOpen(value => !value)} aria-label={open ? 'Close navigation' : 'Open navigation'}>{open ? <X size={20} /> : <Menu size={20} />}</button>
         <div className="global-search"><Search size={16} aria-hidden="true" /><input id="global-search" aria-label="Navigate GSS" placeholder="Go to tasks, agents, evidence…" value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && searchItems[0]) { router.push(searchItems[0].href); setQuery(''); } if (event.key === 'Escape') setQuery(''); }} /><kbd>⌘ K</kbd>{query && <div className="search-results" role="listbox" aria-label="Navigation results">{searchItems.length ? searchItems.map(item => <Link key={item.href} href={item.href} onClick={() => setQuery('')}><item.icon size={15} /><span>{item.label}</span><ChevronRight size={13} /></Link>) : <span>No destination found</span>}</div>}</div>
-        <div className="topbar-status"><span className="status-dot success" /><span>Systems nominal</span></div>
+        <div className="topbar-status"><span className="status-dot info" /><span>Evidence first</span></div>
       </header>
       <main id="main-content" className="shell-content">{children}</main>
     </div>

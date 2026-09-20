@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@asq/sdk": "*",
-    "@asq/guardrails": "*"
+    "@asq/guardrails": "*",
+    "@asq/persistence": "*"
   }
 }

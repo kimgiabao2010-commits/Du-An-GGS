@@ -6,6 +6,7 @@ const targets = {
   standalone: 'services/standalone/src/main.ts',
   worker: 'services/cli-worker/src/main.ts',
   ide: 'services/ide-reasoning/src/main.ts',
+  siem: 'services/siem-worker/src/main.ts',
   smoke: 'tests/e2e/test_closed_loop.ts'
 };
 const target = targets[process.argv[2]];

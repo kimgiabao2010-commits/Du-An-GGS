@@ -34,7 +34,7 @@ services:
     image: grafana/grafana:latest
     container_name: asq-grafana
     ports:
-      - "3000:3000"
+      - "3002:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
     volumes:

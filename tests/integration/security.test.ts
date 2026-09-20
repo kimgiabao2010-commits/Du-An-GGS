@@ -9,6 +9,8 @@ import { ASQgRPCClient } from '../../packages/sdk/src/transport/grpc-client.ts';
 import { ControlledExecutor, instructionHash, parseReadOnlyCommand } from '../../services/cli-worker/src/controlled-executor.ts';
 import { CentralCommandOrchestrator } from '../../services/standalone/src/command-center.ts';
 import { ProgressiveAutonomyController } from '../../services/standalone/src/autonomy/progressive-controller.ts';
+import type { RuntimeStore } from '../../packages/persistence/src/runtime-store.ts';
+import type { CaseState, GssResultContract, GssTaskContract, ObservationPack, TaskStatus } from '../../packages/sdk/src/runtime/contracts.ts';
 
 const secret = 'integration-test-secret-only-32-characters';
 const signer = new TokenSigner(secret);
@@ -26,6 +28,20 @@ const task = (instruction = 'hostname') => {
 };
 const sockets: WebSocket[] = [];
 const servers: { close(): Promise<void> }[] = [];
+class MemoryRuntimeStore implements RuntimeStore {
+  tasks: GssTaskContract[] = [];
+  results: GssResultContract[] = [];
+  messages: Array<{ caseId: string; role: string; content: string }> = [];
+  states: CaseState[] = [];
+  async ready() {}
+  async close() {}
+  async ensureCase() {}
+  async transitionCase(_caseId: string, state: CaseState) { this.states.push(state); }
+  async appendMessage(caseId: string, role: any, content: string) { this.messages.push({ caseId, role, content }); return randomUUID(); }
+  async createTask(task: GssTaskContract) { this.tasks.push(task); return { created: true }; }
+  async updateTask(_taskId: string, _status: TaskStatus, _worker?: string) {}
+  async recordResult(result: GssResultContract, _observation?: ObservationPack) { this.results.push(result); }
+}
 async function connect(port: number, token: string) {
   const ws = new WebSocket('ws://127.0.0.1:' + port, { headers: { Authorization: 'Bearer ' + token } });
   sockets.push(ws);
@@ -38,6 +54,16 @@ async function nextStatus(ws: WebSocket, state: string) {
     function receive(raw: any) {
       const message = JSON.parse(raw.toString());
       if (message.payload?.source === state) { clearTimeout(timeout); ws.off('message', receive); resolve(message); }
+    }
+    ws.on('message', receive);
+  });
+}
+async function nextFrameType(ws: WebSocket, type: string) {
+  return new Promise<any>((resolve, reject) => {
+    const timeout = setTimeout(() => { ws.off('message', receive); reject(new Error('Missing frame ' + type)); }, 3000);
+    function receive(raw: any) {
+      const message = JSON.parse(raw.toString());
+      if (message.type === type) { clearTimeout(timeout); ws.off('message', receive); resolve(message); }
     }
     ws.on('message', receive);
   });
@@ -80,6 +106,13 @@ describe('Controlled host execution', () => {
     expect((await worker.execute({ ...authorized, taskId: 'other' })).status).toBe('DENIED');
     expect((await worker.execute(authorized)).status).toBe('SUCCESS');
     expect((await worker.execute(authorized)).status).toBe('DENIED');
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+  it('binds a structured capability to the exact resolved command', async () => {
+    const run = vi.fn(async () => 'test-host');
+    const worker = new ControlledExecutor(signer, run);
+    expect((await worker.execute({ ...task('hostname'), action: 'inspect_system' })).status).toBe('DENIED');
+    expect((await worker.execute({ ...task('hostname'), action: 'inspect_hostname' })).status).toBe('SUCCESS');
     expect(run).toHaveBeenCalledTimes(1);
   });
   it('cancels in-flight execution and denies new work after halt', async () => {
@@ -167,22 +200,44 @@ describe('Real WebSocket authorization', () => {
 
 describe('Orchestrator over real sockets', () => {
   it('dispatches a signed task and correlates actual execution evidence to the incident', async () => {
-    const app = new CentralCommandOrchestrator(0, { routePrompt: async () => ({ agent: 'cli', instruction: 'hostname' }) }, signer);
+    const store = new MemoryRuntimeStore();
+    const app = new CentralCommandOrchestrator(0, { routePrompt: async () => ({ agent: 'cli', action: 'inspect_hostname', instruction: 'hostname', parameters: {} }) }, signer, store);
     servers.push(app);
     const port = await app.ready();
     const worker = await connect(port, session('cli-worker-agent', 'CLI_DAEMON', ['REPORT']));
     const user = await connect(port, session('controller'));
     const evidence = nextStatus(user, 'SUCCESS');
-    const dispatched = once(worker, 'message');
+    const dispatched = nextFrameType(worker, 'TASK');
     user.send(JSON.stringify(frame({ action: 'commander_prompt', content: 'hostname' })));
-    const [raw] = await dispatched;
-    const message = JSON.parse(raw.toString());
+    const message = await dispatched;
     expect(message.type).toBe('TASK');
+    expect(message.payload.schemaVersion).toBe('gss.task.v1');
+    expect(message.payload.action).toBe('inspect_hostname');
+    expect(message.payload.riskLevel).toBe('read_only');
     const result = await new ControlledExecutor(signer).execute(message.payload);
     expect(result.status).toBe('SUCCESS');
     expect(result.output.trim().length).toBeGreaterThan(0);
     worker.send(JSON.stringify(frame({ ...result, content: result.output }, { type: 'EVIDENCE', incident_id: message.incident_id })));
-    expect((await evidence).incident_id).toBe('case-1');
+    const completed = await evidence;
+    expect(completed.incident_id).toBe('case-1');
+    expect(completed.payload.result.schemaVersion).toBe('gss.result.v1');
+    expect(completed.payload.observation.evidenceRefs).toHaveLength(1);
+    expect(store.tasks).toHaveLength(1);
+    expect(store.results[0]?.status).toBe('COMPLETED');
+    expect(store.states).toContain('COLLECTING_EVIDENCE');
+    expect(store.states).toContain('ANALYZING');
+  });
+  it('returns a conversation response without fabricating an executor task', async () => {
+    const store = new MemoryRuntimeStore();
+    const app = new CentralCommandOrchestrator(0, { routePrompt: async () => ({ agent: 'chat', instruction: 'How can I help with this case?' }) }, signer, store);
+    servers.push(app);
+    const ws = await connect(await app.ready(), session('controller'));
+    const chat = nextStatus(ws, 'CHAT');
+    ws.send(JSON.stringify(frame({ action: 'commander_prompt', content: 'hello' })));
+    expect((await chat).payload.message).toBe('How can I help with this case?');
+    expect(store.tasks).toHaveLength(0);
+    expect(store.messages.map(item => item.role)).toEqual(['USER', 'ASSISTANT']);
+    expect(store.states).toContain('RESPONDING');
   });
   it('reports an offline worker instead of success', async () => {
     const app = new CentralCommandOrchestrator(0, { routePrompt: async () => ({ agent: 'cli', instruction: 'hostname' }) }, signer);

@@ -1,0 +1,15 @@
+{
+  "name": "@asq/siem-worker",
+  "version": "4.0.0",
+  "description": "Read-only Google Chronicle evidence collector",
+  "type": "module",
+  "main": "src/main.ts",
+  "scripts": {
+    "start": "ts-node src/main.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@asq/sdk": "*",
+    "google-auth-library": "^11.1.0"
+  }
+}
