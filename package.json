@@ -11,6 +11,7 @@
     "services/*"
   ],
   "scripts": {
+    "skills:audit": "node agent-skills/scripts/audit-skills.mjs",
     "dev": "node scripts/dev-stack.mjs",
     "dev:check": "node scripts/dev-stack.mjs --dry-run",
     "db:migrate": "node scripts/migrate-postgres.mjs",

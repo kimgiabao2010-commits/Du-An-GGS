@@ -118,6 +118,8 @@ CLI actions are read-only. IDE actions are analysis-only. High-risk actions are 
                 properties: {
                   action: { type: 'string', enum: ['analyze_code', 'search_code'] },
                   question: { type: 'string', maxLength: 4000 },
+                  query: { type: 'string', maxLength: 200, description: 'Optional literal code symbol or text to search for.' },
+                  path: { type: 'string', maxLength: 500, description: 'Optional repository-relative path.' },
                 },
                 required: ['action', 'question'],
                 additionalProperties: false,
@@ -143,7 +145,9 @@ CLI actions are read-only. IDE actions are analysis-only. High-risk actions are 
         if (toolCall.function.name === 'delegate_ide' && ['analyze_code', 'search_code'].includes(action)) {
           const question = typeof args.question === 'string' ? args.question.trim() : '';
           if (!question) throw new Error('Missing IDE analysis question');
-          return { agent: 'ide', action, instruction: question, parameters: { question } };
+          return { agent: 'ide', action, instruction: question, parameters: { question,
+            ...(typeof args.query === 'string' ? { query: args.query.trim() } : {}),
+            ...(typeof args.path === 'string' ? { path: args.path.trim() } : {}) } };
         }
         if (toolCall.function.name === 'delegate_siem') {
           return { agent: 'siem', action: 'search_siem', instruction: 'Search Chronicle for a validated indicator',

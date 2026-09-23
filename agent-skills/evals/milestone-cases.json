@@ -1,0 +1,62 @@
+{
+  "schemaVersion": "gss.skill-milestone.v1",
+  "description": "Observable behavior required from the M5-M8 workflows.",
+  "cases": [
+    {
+      "id": "m5-happy-path",
+      "milestone": "M5",
+      "given": "A valid gss.task.v1 search_code task for an allowlisted repository root.",
+      "when": "The authenticated IDE worker performs a bounded search.",
+      "then": ["raw artifact has SHA-256", "ObservationPack is bounded", "gss.result.v1 is persisted", "audit links task and evidence"]
+    },
+    {
+      "id": "m5-replay",
+      "milestone": "M5",
+      "given": "The same task and idempotency key are delivered after restart.",
+      "when": "The runtime resumes processing.",
+      "then": ["no duplicate task", "no duplicate artifact/evidence claim", "existing result remains authoritative"]
+    },
+    {
+      "id": "m6-one-follow-up",
+      "milestone": "M6",
+      "given": "Validated evidence matches a deterministic follow-up rule and budget remains.",
+      "when": "The next-step policy evaluates the result.",
+      "then": ["exactly one read-only task is created", "idempotency key is deterministic", "policy reason and depth are audited"]
+    },
+    {
+      "id": "m6-budget-exhausted",
+      "milestone": "M6",
+      "given": "The case reached its automatic task or depth budget.",
+      "when": "Another result arrives.",
+      "then": ["no task is dispatched", "state/reason is explicit", "existing evidence is unchanged"]
+    },
+    {
+      "id": "m7-two-person-approval",
+      "milestone": "M7",
+      "given": "A pending request is bound to one artifact hash and a requester.",
+      "when": "Two different eligible approvers approve before expiry.",
+      "then": ["first decision remains PENDING", "second distinct decision becomes APPROVED", "all transitions are durable and audited"]
+    },
+    {
+      "id": "m7-approval-is-not-execution",
+      "milestone": "M7",
+      "given": "A request reaches APPROVED.",
+      "when": "No authorized action adapter exists.",
+      "then": ["no deployment or remediation runs", "runtime reports approved proposal state only"]
+    },
+    {
+      "id": "m8-routing-ledger",
+      "milestone": "M8",
+      "given": "A routine coding task and a high-risk architecture task.",
+      "when": "The model router evaluates both.",
+      "then": ["each receives a policy reason", "usage/latency status is recorded", "unknown cost remains UNKNOWN", "high-risk task cannot silently downgrade"]
+    },
+    {
+      "id": "verification-external-blocker",
+      "milestone": "ALL",
+      "given": "Local tests pass but Chronicle credentials are absent.",
+      "when": "The final gate reports status.",
+      "then": ["local gates are PASS", "Chronicle staging is BLOCKED", "overall report does not claim staging closed-loop pass"]
+    }
+  ]
+}

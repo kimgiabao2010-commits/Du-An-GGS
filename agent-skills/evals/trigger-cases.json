@@ -1,0 +1,98 @@
+{
+  "schemaVersion": "gss.skill-trigger.v1",
+  "description": "Positive, negative and near-miss cases for GSS skill discovery.",
+  "cases": [
+    {
+      "id": "trigger-router-cross-component",
+      "prompt": "Plan the next GSS milestone across Standalone, IDE worker, PostgreSQL and verification.",
+      "expectedSkill": "gss-skill-router",
+      "shouldTrigger": true,
+      "kind": "positive"
+    },
+    {
+      "id": "trigger-router-simple-fact",
+      "prompt": "What port does the local web UI use?",
+      "expectedSkill": "gss-skill-router",
+      "shouldTrigger": false,
+      "kind": "negative"
+    },
+    {
+      "id": "trigger-ide-search",
+      "prompt": "Implement search_code in the IDE worker with repository-root confinement and an ObservationPack.",
+      "expectedSkill": "gss-ide-readonly-investigation",
+      "shouldTrigger": true,
+      "kind": "positive"
+    },
+    {
+      "id": "trigger-ide-chronicle",
+      "prompt": "Search Chronicle for events related to 203.0.113.4.",
+      "expectedSkill": "gss-ide-readonly-investigation",
+      "shouldTrigger": false,
+      "kind": "negative"
+    },
+    {
+      "id": "trigger-ide-near-miss-write",
+      "prompt": "Find the auth bug through the IDE agent and patch the file automatically.",
+      "expectedSkill": "gss-ide-readonly-investigation",
+      "shouldTrigger": true,
+      "kind": "near-miss",
+      "expectedBoundary": "Allow investigation planning but reject runtime patching."
+    },
+    {
+      "id": "trigger-next-step",
+      "prompt": "After this verified SIEM evidence returns, schedule exactly one bounded follow-up investigation.",
+      "expectedSkill": "gss-evidence-next-step",
+      "shouldTrigger": true,
+      "kind": "positive"
+    },
+    {
+      "id": "trigger-next-step-chat",
+      "prompt": "Explain what the analyst might investigate next, but do not create a task.",
+      "expectedSkill": "gss-evidence-next-step",
+      "shouldTrigger": false,
+      "kind": "negative"
+    },
+    {
+      "id": "trigger-approval",
+      "prompt": "Wire the two-person artifact-hash-bound approval store into Command Center runtime.",
+      "expectedSkill": "gss-durable-approval",
+      "shouldTrigger": true,
+      "kind": "positive"
+    },
+    {
+      "id": "trigger-approval-readonly",
+      "prompt": "Run the read-only hostname capability.",
+      "expectedSkill": "gss-durable-approval",
+      "shouldTrigger": false,
+      "kind": "negative"
+    },
+    {
+      "id": "trigger-routing",
+      "prompt": "Add a PostgreSQL usage ledger and prove high-risk requests never silently downgrade models.",
+      "expectedSkill": "gss-model-routing-eval",
+      "shouldTrigger": true,
+      "kind": "positive"
+    },
+    {
+      "id": "trigger-routing-incidental",
+      "prompt": "Fix this CSS spacing issue; the app happens to use an LLM elsewhere.",
+      "expectedSkill": "gss-model-routing-eval",
+      "shouldTrigger": false,
+      "kind": "negative"
+    },
+    {
+      "id": "trigger-verification",
+      "prompt": "The M5 implementation is done; verify it and tell me whether it is ready to commit.",
+      "expectedSkill": "gss-verification-gate",
+      "shouldTrigger": true,
+      "kind": "positive"
+    },
+    {
+      "id": "trigger-verification-design",
+      "prompt": "Brainstorm possible names for the next milestone.",
+      "expectedSkill": "gss-verification-gate",
+      "shouldTrigger": false,
+      "kind": "negative"
+    }
+  ]
+}

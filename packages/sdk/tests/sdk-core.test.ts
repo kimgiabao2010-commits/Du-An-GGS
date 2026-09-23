@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ASQClient } from '../src/asq-client.js';
 import { ASQgRPCClient } from '../src/transport/grpc-client.ts';
-import { isGssTaskContract, TASK_SCHEMA_VERSION } from '../src/runtime/contracts.ts';
+import { isGssTaskContract, isIdeInvestigationRecord, TASK_SCHEMA_VERSION } from '../src/runtime/contracts.ts';
 import { correlateEvidence } from '../src/investigation/correlation.ts';
 
 // Mock ws
@@ -86,5 +86,18 @@ describe('ASQClient Core SDK', () => {
         resultCount: 0, truncated: false, redaction: 'ALLOWLISTED_FIELDS_ONLY' } });
     expect(verdict.verdict).toBe('INSUFFICIENT_EVIDENCE');
     expect(verdict.evidenceIds).toEqual(['E-1']);
+  });
+
+  it('validates IDE investigation provenance and rejects unsafe paths or mismatched counts', () => {
+    const record = {
+      schemaVersion: 'gss.ide-investigation.v1', taskId: 'task-1', caseId: 'case-1', action: 'search_code',
+      repositoryRootId: 'repo-0123456789abcdef', requestedPath: 'src', queryTerms: ['marker'],
+      scannedFiles: 1, skippedFiles: 0, scannedBytes: 42, matchCount: 1, truncated: false,
+      redaction: 'SECRET_PATTERNS_REDACTED', quarantinedFragments: 0,
+      matches: [{ path: 'src/file.ts', line: 1, column: 14, term: 'marker', excerpt: 'const marker = true;' }],
+    };
+    expect(isIdeInvestigationRecord(record)).toBe(true);
+    expect(isIdeInvestigationRecord({ ...record, matchCount: 2 })).toBe(false);
+    expect(isIdeInvestigationRecord({ ...record, matches: [{ ...record.matches[0], path: '../secret.env' }] })).toBe(false);
   });
 });

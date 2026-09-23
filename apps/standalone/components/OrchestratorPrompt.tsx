@@ -8,7 +8,7 @@ type Message = { id: string; source: string; text: string; timestamp: string; us
 export default function OrchestratorPrompt() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
-  const [username, setUsername] = useState('');
+  const [username, setUsername] = useState('BaoNVG');
   const [password, setPassword] = useState('');
   const [loginStatus, setLoginStatus] = useState('Not authenticated');
   const [sessionVersion, setSessionVersion] = useState(0);
@@ -41,7 +41,8 @@ export default function OrchestratorPrompt() {
   useEffect(() => { newCase(); }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
   useEffect(() => {
-    const socket = new WebSocket('ws://localhost:4000');
+    const socketProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const socket = new WebSocket(`${socketProtocol}://${window.location.hostname}:4000`);
     ws.current = socket;
     socket.onopen = () => { setConnected(true); setLoginStatus(previous => previous.startsWith('Administrator') ? `${previous} - control plane online` : 'Observer connected - sign in to operate'); };
     socket.onmessage = event => {

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  RESULT_SCHEMA_VERSION, TASK_SCHEMA_VERSION, TokenSigner, WsCommandServer,
+  RESULT_SCHEMA_VERSION, TASK_SCHEMA_VERSION, TokenSigner, WsCommandServer, isIdeInvestigationRecord,
   type CapabilityAction, type CaseState, type GssResultContract, type GssTaskContract,
   type ObservationPack, type RuntimeStatusPayload, type TaskStatus,
 } from '@asq/sdk';
@@ -190,7 +190,12 @@ export class CentralCommandOrchestrator {
     clearTimeout(pending.timer);
     this.pending.delete(taskId);
 
-    const workerStatus = String(msg.payload.status ?? 'FAILED');
+    const reportedWorkerStatus = String(msg.payload.status ?? 'FAILED');
+    const ideInvestigation = pending.task.target === 'ide' && isIdeInvestigationRecord(msg.payload?.investigation) &&
+      msg.payload.investigation.taskId === taskId && msg.payload.investigation.caseId === pending.caseId &&
+      msg.payload.investigation.action === pending.task.action ? msg.payload.investigation : undefined;
+    const workerStatus = pending.task.target === 'ide' && reportedWorkerStatus === 'SUCCESS' && !ideInvestigation
+      ? 'INVALID_RESULT' : reportedWorkerStatus;
     const status: GssResultContract['status'] = workerStatus === 'SUCCESS' ? 'COMPLETED' :
       workerStatus === 'BLOCKED' || workerStatus === 'DENIED' ? 'BLOCKED' : workerStatus === 'CANCELLED' ? 'CANCELLED' : 'FAILED';
     const output = String(msg.payload.output ?? msg.payload.content ?? '');
@@ -207,6 +212,7 @@ export class CentralCommandOrchestrator {
       status,
       result: { summary: observation.summary, action: pending.task.action, rawArtifactRef: artifact?.ref,
         sha256: artifact?.sha256, ...(msg.payload?.evidence ? { evidence: msg.payload.evidence } : {}),
+        ...(ideInvestigation ? { investigation: ideInvestigation } : {}),
         ...(msg.payload?.verdict ? { verdict: msg.payload.verdict } : {}),
         ...(msg.payload?.failure ? { failure: msg.payload.failure } : {}) },
       evidenceRefs,

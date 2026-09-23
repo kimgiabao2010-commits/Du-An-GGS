@@ -66,6 +66,32 @@ export interface ObservationPack {
   createdAt: string;
 }
 
+export interface IdeInvestigationMatch {
+  path: string;
+  line: number;
+  column: number;
+  term: string;
+  excerpt: string;
+}
+
+export interface IdeInvestigationRecord {
+  schemaVersion: 'gss.ide-investigation.v1';
+  taskId: string;
+  caseId: string;
+  action: 'search_code' | 'analyze_code';
+  repositoryRootId: string;
+  requestedPath: string;
+  queryTerms: string[];
+  scannedFiles: number;
+  skippedFiles: number;
+  scannedBytes: number;
+  matchCount: number;
+  truncated: boolean;
+  redaction: 'SECRET_PATTERNS_REDACTED';
+  quarantinedFragments: number;
+  matches: IdeInvestigationMatch[];
+}
+
 export interface RuntimeStatusPayload {
   action: 'ui_flash';
   source: string;
@@ -85,4 +111,27 @@ export function isGssTaskContract(value: unknown): value is GssTaskContract {
     typeof task.caseId === 'string' && task.source === 'standalone' &&
     ['cli', 'ide', 'siem'].includes(String(task.target)) && typeof task.action === 'string' &&
     task.riskLevel === 'read_only' && Number.isSafeInteger(task.timeoutMs);
+}
+
+export function isIdeInvestigationRecord(value: unknown): value is IdeInvestigationRecord {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Partial<IdeInvestigationRecord>;
+  if (record.schemaVersion !== 'gss.ide-investigation.v1' || typeof record.taskId !== 'string' || !record.taskId ||
+    typeof record.caseId !== 'string' || !record.caseId || !['search_code', 'analyze_code'].includes(String(record.action)) ||
+    typeof record.repositoryRootId !== 'string' || !/^repo-[a-f0-9]{16}$/.test(record.repositoryRootId) ||
+    typeof record.requestedPath !== 'string' || record.requestedPath.length > 500 || record.requestedPath.includes('\0') ||
+    record.requestedPath.startsWith('/') || /^[a-z]:[\\/]/i.test(record.requestedPath) ||
+    record.requestedPath.split(/[\\/]+/).includes('..') ||
+    record.redaction !== 'SECRET_PATTERNS_REDACTED' || typeof record.truncated !== 'boolean') return false;
+  for (const count of [record.scannedFiles, record.skippedFiles, record.scannedBytes, record.matchCount, record.quarantinedFragments]) {
+    if (!Number.isSafeInteger(count) || Number(count) < 0) return false;
+  }
+  if (!Array.isArray(record.queryTerms) || record.queryTerms.length === 0 || record.queryTerms.length > 8 ||
+    record.queryTerms.some(term => typeof term !== 'string' || !term || term.length > 200)) return false;
+  if (!Array.isArray(record.matches) || record.matches.length > 100 || record.matchCount !== record.matches.length) return false;
+  return record.matches.every(match => Boolean(match) && typeof match.path === 'string' && match.path.length <= 1000 &&
+    !match.path.startsWith('/') && !/^[a-z]:[\\/]/i.test(match.path) && !match.path.split(/[\\/]+/).includes('..') &&
+    Number.isSafeInteger(match.line) && match.line > 0 && Number.isSafeInteger(match.column) && match.column > 0 &&
+    typeof match.term === 'string' && match.term.length > 0 && match.term.length <= 200 &&
+    typeof match.excerpt === 'string' && match.excerpt.length <= 320);
 }

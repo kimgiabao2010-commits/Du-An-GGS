@@ -10,9 +10,11 @@ const now = Date.now();
 const root = fileURLToPath(new URL('../', import.meta.url));
 const secret = process.env.ASQ_JWT_SECRET && process.env.ASQ_JWT_SECRET.length >= 32
   ? process.env.ASQ_JWT_SECRET : randomBytes(32).toString('base64url');
-const username = process.env.ASQ_ADMIN_USERNAME || 'admin-local';
-const hasConfiguredPassword = Boolean(process.env.ASQ_ADMIN_PASSWORD && process.env.ASQ_ADMIN_PASSWORD.length >= 16);
-const password = hasConfiguredPassword ? process.env.ASQ_ADMIN_PASSWORD : randomBytes(15).toString('base64url');
+// Fixed preview credentials requested for the one-button local runtime. The
+// auth route accepts this weak password only when the launcher marks the
+// request as an explicitly insecure loopback demo session.
+const username = 'BaoNVG';
+const password = '1';
 
 function token(agentId, role) {
   const claims = { agentId, role, permissions: ['REPORT'], timestamp: now, expiresAt: now + 8 * 60 * 60 * 1000 };
@@ -25,10 +27,12 @@ const runtimeEnv = {
   ASQ_JWT_SECRET: secret,
   ASQ_ADMIN_USERNAME: username,
   ASQ_ADMIN_PASSWORD: password,
+  ASQ_INSECURE_LOCAL_DEMO_AUTH: 'true',
   ASQ_WEB_ORIGIN: process.env.ASQ_WEB_ORIGIN || 'http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001',
   ASQ_WS_URL: process.env.ASQ_WS_URL || 'ws://127.0.0.1:4000',
   ASQ_LOCAL_RUNTIME: 'true',
   GSS_DATA_DIR: process.env.GSS_DATA_DIR || resolve(root, 'data'),
+  GSS_IDE_REPOSITORY_ROOTS: process.env.GSS_IDE_REPOSITORY_ROOTS || root,
   ASQ_WORKER_TOKEN: token('cli-worker-agent', 'CLI_DAEMON'),
   ASQ_IDE_TOKEN: token('ide-worker-agent', 'IDE_AGENT'),
   ASQ_SIEM_TOKEN: token('siem-worker-agent', 'SIEM'),
@@ -42,7 +46,7 @@ const services = [
   ['CLI worker', process.execPath, [...tsRuntime, resolve(root, 'services/cli-worker/src/main.ts')], root],
   ['IDE agent', process.execPath, [...tsRuntime, resolve(root, 'services/ide-reasoning/src/main.ts')], root],
   ['SIEM worker', process.execPath, [...tsRuntime, resolve(root, 'services/siem-worker/src/main.ts')], root],
-  ['Web UI', process.execPath, [nextBin, 'start', '-p', '3000'], webRoot],
+  ['Web UI', process.execPath, [nextBin, 'start', '-H', '127.0.0.1', '-p', '3000'], webRoot],
 ];
 
 function portInUse(port) {
@@ -67,6 +71,7 @@ if (dryRun) {
   console.log('URL: http://localhost:3000');
   console.log(process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY ? 'OK: LLM provider configured.' : 'WARNING: no LLM provider; deterministic read-only intents still work.');
   console.log('OK: will start ' + services.map(([name]) => name).join(', '));
+  console.log(`OK: IDE read-only root configured (${runtimeEnv.GSS_IDE_REPOSITORY_ROOTS === root ? 'repository root' : 'custom allowlist'}).`);
   console.log(process.env.GSS_CHRONICLE_PROJECT && process.env.GSS_CHRONICLE_LOCATION && process.env.GSS_CHRONICLE_INSTANCE && process.env.GSS_CHRONICLE_ENDPOINT
     ? 'OK: Chronicle read-only worker configured.' : 'WARNING: Chronicle worker will remain disabled until its four GSS_CHRONICLE_* settings are configured.');
   console.log(occupied.length ? `WARNING: occupied ports: ${occupied.join(', ')}.` : 'OK: ports 3000 and 4000 are available.');
@@ -89,7 +94,7 @@ if (webBuild.status !== 0) {
 console.log('\nGSS local stack');
 console.log('URL:      http://localhost:3000');
 console.log('Username: ' + username);
-console.log(hasConfiguredPassword ? 'Password: use ASQ_ADMIN_PASSWORD from .env' : 'Password: ' + password);
+console.log('Password: ' + password + ' (insecure local demo only)');
 console.log(process.env.DATABASE_URL ? 'Storage:  PostgreSQL' : 'Storage:  DEGRADED (configure DATABASE_URL for durable state)');
 console.log('These credentials are only for this local runtime.\n');
 
