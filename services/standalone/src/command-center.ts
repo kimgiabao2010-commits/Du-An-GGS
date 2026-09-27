@@ -1,10 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   RESULT_SCHEMA_VERSION, TASK_SCHEMA_VERSION, TokenSigner, WsCommandServer, isIdeInvestigationRecord,
+  isInvestigationEvidence, isInvestigationVerdict,
   type CapabilityAction, type CaseState, type GssResultContract, type GssTaskContract,
-  type ObservationPack, type RuntimeStatusPayload, type TaskStatus,
+  type NextStepProposal, type ObservationPack, type RuntimeStatusPayload, type TaskStatus,
 } from '@asq/sdk';
-import { FilesystemArtifactStore, PostgresRuntimeStore, type RuntimeStore } from '@asq/persistence';
+import {
+  FilesystemArtifactStore, PostgresRuntimeStore, type CommitObservationResult, type RuntimeStore,
+} from '@asq/persistence';
 import { LlmRouter, type RouterDecision } from './agent/llm-router.js';
 
 interface Router { routePrompt(prompt: string): Promise<RouterDecision | { agent: string; instruction: string; action?: CapabilityAction; parameters?: Record<string, unknown> }> }
@@ -13,6 +16,7 @@ interface PendingTask {
   caseId: string;
   agentId: string;
   task: GssTaskContract;
+  runId?: string;
   startedAt: number;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -33,7 +37,14 @@ function legacyAction(decision: { agent: string; instruction: string }): Capabil
   return entry?.[0] as CapabilityAction | undefined ?? null;
 }
 
-function packOutput(caseId: string, taskId: string, output: string, evidenceRefs: string[], rawArtifactRef?: string): ObservationPack {
+function packOutput(
+  caseId: string,
+  taskId: string,
+  factNamespace: CapabilityAction,
+  output: string,
+  evidenceRefs: string[],
+  rawArtifactRef?: string,
+): ObservationPack {
   const nonEmpty = output.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const summary = (nonEmpty.slice(0, 8).join('\n') || 'Worker returned no textual observation').slice(0, 1600);
   return {
@@ -41,7 +52,7 @@ function packOutput(caseId: string, taskId: string, output: string, evidenceRefs
     caseId,
     taskId,
     summary,
-    facts: nonEmpty.slice(0, 12).map((value, index) => ({ key: `line_${index + 1}`, value: value.slice(0, 500) })),
+    facts: nonEmpty.slice(0, 12).map((value, index) => ({ key: `${factNamespace}.line_${index + 1}`, value: value.slice(0, 500) })),
     evidenceRefs,
     rawArtifactRef,
     originalBytes: Buffer.byteLength(output, 'utf8'),
@@ -50,11 +61,51 @@ function packOutput(caseId: string, taskId: string, output: string, evidenceRefs
   };
 }
 
+function nextStepProposal(task: GssTaskContract, payload: Record<string, any>): NextStepProposal {
+  const cliSequence: Partial<Record<CapabilityAction, CapabilityAction>> = {
+    inspect_hostname: 'inspect_system',
+    inspect_system: 'inspect_network_config',
+    inspect_network_config: 'inspect_network_connections',
+  };
+  const cliNext = cliSequence[task.action];
+  if (cliNext) {
+    return {
+      kind: 'DISPATCH',
+      reasonCode: 'READ_ONLY_RECON_SEQUENCE',
+      rationale: 'Continue the bounded read-only host investigation with the next allowlisted observation.',
+      action: { target: 'cli', action: cliNext, parameters: {}, riskLevel: 'read_only' },
+    };
+  }
+  if (task.action === 'search_code') {
+    return {
+      kind: 'DISPATCH',
+      reasonCode: 'CODE_ANALYSIS_FOLLOW_UP',
+      rationale: 'Analyze the allowlisted repository scope after the read-only search observation.',
+      action: { target: 'ide', action: 'analyze_code', parameters: task.parameters, riskLevel: 'read_only' },
+    };
+  }
+  if (task.action === 'search_siem') {
+    const verdict = String(payload.verdict?.verdict ?? 'INSUFFICIENT_EVIDENCE');
+    if (verdict === 'INSUFFICIENT_EVIDENCE') {
+      return { kind: 'BLOCKED', reasonCode: 'INSUFFICIENT_SIEM_EVIDENCE', rationale: 'SIEM evidence was insufficient for a deterministic verdict.' };
+    }
+    return { kind: 'FINALIZE', reasonCode: 'DETERMINISTIC_SIEM_VERDICT', rationale: `The verified SIEM adapter produced verdict ${verdict}.` };
+  }
+  return {
+    kind: 'FINALIZE',
+    reasonCode: 'BOUNDED_READ_ONLY_SEQUENCE_COMPLETE',
+    rationale: 'The bounded read-only investigation sequence completed with verified evidence.',
+  };
+}
+
 export class CentralCommandOrchestrator {
   private server: WsCommandServer;
   private halted = false;
   private planning = 0;
   private pending = new Map<string, PendingTask>();
+  private readonly outboxClaimOwner = `command-center-${randomUUID()}`;
+  private outboxTimer?: ReturnType<typeof setInterval>;
+  private drainingOutbox = false;
 
   constructor(
     port = 4000,
@@ -72,10 +123,16 @@ export class CentralCommandOrchestrator {
 
   public async ready(): Promise<number> {
     if (this.store) await this.store.ready();
-    return this.server.ready();
+    const port = await this.server.ready();
+    if (this.store?.claimPendingDispatches) {
+      this.outboxTimer = setInterval(() => { void this.drainOutbox(); }, 1_000);
+      this.outboxTimer.unref?.();
+    }
+    return port;
   }
 
   public async close(): Promise<void> {
+    if (this.outboxTimer) clearInterval(this.outboxTimer);
     for (const task of this.pending.values()) clearTimeout(task.timer);
     this.pending.clear();
     await this.server.close();
@@ -105,8 +162,10 @@ export class CentralCommandOrchestrator {
 
     const caseId = String(msg.incident_id);
     const actorId = String(msg.agentId);
+    let runId: string | undefined;
     if (this.store) {
       await this.store.ensureCase(caseId, actorId);
+      runId = (await this.store.ensureInvestigationRun?.(caseId, actorId))?.runId;
       await this.store.appendMessage(caseId, 'USER', prompt, { requestMessageId: msg.message_id });
       await this.store.transitionCase(caseId, 'TRIAGING');
     }
@@ -147,40 +206,14 @@ export class CentralCommandOrchestrator {
       timeoutMs: 15_000,
       createdAt: new Date().toISOString(),
     };
-    if (this.store && !(await this.store.createTask(task, actorId)).created) {
+    if (this.store && !(await this.store.createTask(task, actorId, { runId })).created) {
       this.status('DUPLICATE', 'This request has already created a task.', caseId, { caseId, taskId, task });
       return;
     }
     await this.store?.transitionCase(caseId, 'COLLECTING_EVIDENCE');
 
     const agentId = decision.agent === 'cli' ? 'cli-worker-agent' : decision.agent === 'ide' ? 'ide-worker-agent' : 'siem-worker-agent';
-    const workerPayload: Record<string, unknown> = { ...task, incidentId: caseId, instruction: capability.instruction ?? decision.instruction };
-    if (decision.agent === 'cli') workerPayload.token = this.signer.sign({
-      agentId,
-      role: 'STANDALONE',
-      permissions: ['EXECUTE_RECON'],
-      timestamp: Date.now(),
-      expiresAt: Date.now() + 60_000,
-      taskId,
-      incidentId: caseId,
-      instructionHash: createHash('sha256').update(String(workerPayload.instruction)).digest('hex'),
-    });
-
-    const timer = setTimeout(() => { void this.timeoutTask(taskId); }, task.timeoutMs);
-    this.pending.set(taskId, { caseId, agentId, task, startedAt: Date.now(), timer });
-    const delivered = this.server.sendToAgent(agentId, {
-      source: 'STANDALONE', target: decision.agent === 'cli' ? 'CLI_DAEMON' : decision.agent === 'ide' ? 'IDE_AGENT' : 'SIEM',
-      type: 'TASK', incident_id: caseId, payload: workerPayload,
-    });
-    if (!delivered) {
-      clearTimeout(timer);
-      this.pending.delete(taskId);
-      await this.store?.updateTask(taskId, 'BLOCKED', agentId);
-      this.status('OFFLINE', `${agentId} is not connected. Nothing was executed.`, caseId, { caseId, taskId, task, caseState: 'COLLECTING_EVIDENCE' });
-      return;
-    }
-    await this.store?.updateTask(taskId, 'DISPATCHED', agentId);
-    this.status('DISPATCHED', `Task ${taskId} was routed to ${agentId}.`, caseId, { caseId, taskId, task, caseState: 'COLLECTING_EVIDENCE' });
+    await this.dispatchPreparedTask(task, agentId, capability.instruction ?? decision.instruction, runId);
   }
 
   private async handleWorkerResult(msg: any): Promise<void> {
@@ -194,16 +227,21 @@ export class CentralCommandOrchestrator {
     const ideInvestigation = pending.task.target === 'ide' && isIdeInvestigationRecord(msg.payload?.investigation) &&
       msg.payload.investigation.taskId === taskId && msg.payload.investigation.caseId === pending.caseId &&
       msg.payload.investigation.action === pending.task.action ? msg.payload.investigation : undefined;
-    const workerStatus = pending.task.target === 'ide' && reportedWorkerStatus === 'SUCCESS' && !ideInvestigation
-      ? 'INVALID_RESULT' : reportedWorkerStatus;
+    const siemEvidence = pending.task.target === 'siem' && isInvestigationEvidence(msg.payload?.evidence,
+      { taskId, incidentId: pending.caseId }) ? msg.payload.evidence : undefined;
+    const siemVerdict = siemEvidence && isInvestigationVerdict(msg.payload?.verdict,
+      { taskId, incidentId: pending.caseId, evidenceId: siemEvidence.evidenceId }) ? msg.payload.verdict : undefined;
+    const invalidIdeResult = pending.task.target === 'ide' && reportedWorkerStatus === 'SUCCESS' && !ideInvestigation;
+    const invalidSiemResult = pending.task.target === 'siem' && reportedWorkerStatus === 'SUCCESS' && (!siemEvidence || !siemVerdict);
+    const workerStatus = invalidIdeResult || invalidSiemResult ? 'INVALID_RESULT' : reportedWorkerStatus;
     const status: GssResultContract['status'] = workerStatus === 'SUCCESS' ? 'COMPLETED' :
       workerStatus === 'BLOCKED' || workerStatus === 'DENIED' ? 'BLOCKED' : workerStatus === 'CANCELLED' ? 'CANCELLED' : 'FAILED';
     const output = String(msg.payload.output ?? msg.payload.content ?? '');
     const artifact = output ? await this.artifacts.storeEvidence(pending.caseId, taskId, output) : undefined;
-    const adapterEvidenceId = typeof msg.payload?.evidence?.evidenceId === 'string' ? msg.payload.evidence.evidenceId : undefined;
+    const adapterEvidenceId = siemEvidence?.evidenceId;
     const evidenceRefs = status === 'COMPLETED' ? [adapterEvidenceId, artifact ? `EVD-${artifact.sha256.slice(0, 16)}` : undefined]
       .filter((value): value is string => Boolean(value)) : [];
-    const observation = packOutput(pending.caseId, taskId, output, evidenceRefs, artifact?.ref);
+    const observation = packOutput(pending.caseId, taskId, pending.task.action, output, evidenceRefs, artifact?.ref);
     const result: GssResultContract = {
       schemaVersion: RESULT_SCHEMA_VERSION,
       taskId,
@@ -211,20 +249,118 @@ export class CentralCommandOrchestrator {
       executor: pending.task.target,
       status,
       result: { summary: observation.summary, action: pending.task.action, rawArtifactRef: artifact?.ref,
-        sha256: artifact?.sha256, ...(msg.payload?.evidence ? { evidence: msg.payload.evidence } : {}),
+        sha256: artifact?.sha256, ...(siemEvidence ? { evidence: siemEvidence } : {}),
         ...(ideInvestigation ? { investigation: ideInvestigation } : {}),
-        ...(msg.payload?.verdict ? { verdict: msg.payload.verdict } : {}),
+        ...(siemVerdict ? { verdict: siemVerdict } : {}),
         ...(msg.payload?.failure ? { failure: msg.payload.failure } : {}) },
       evidenceRefs,
       errors: status === 'COMPLETED' ? [] : [{ code: workerStatus, message: observation.summary }],
       metrics: { durationMs: Date.now() - pending.startedAt, outputBytes: artifact?.bytes ?? 0 },
       completedAt: new Date().toISOString(),
     };
-    await this.store?.recordResult(result, observation);
+    const proposal = status === 'COMPLETED' ? nextStepProposal(pending.task, result.result) : undefined;
+    const loopResult = await this.store?.recordResult(result, observation,
+      status === 'COMPLETED' && pending.runId && proposal ? {
+        runId: pending.runId,
+        source: pending.task.target,
+        ...(artifact?.sha256 ? { artifactHash: artifact.sha256 } : {}),
+        proposal,
+      } : undefined);
     await this.store?.appendMessage(pending.caseId, 'WORKER', observation.summary, { taskId, evidenceRefs });
-    await this.store?.transitionCase(pending.caseId, status === 'COMPLETED' ? 'ANALYZING' : 'INVESTIGATING');
+    const durableLoop = loopResult && typeof loopResult === 'object' && 'decision' in loopResult
+      ? loopResult as CommitObservationResult : undefined;
+    const nextCaseState: CaseState = status !== 'COMPLETED' || durableLoop?.decision.kind === 'BLOCKED'
+      ? 'INVESTIGATING' : durableLoop?.decision.kind === 'DISPATCH' ? 'COLLECTING_EVIDENCE' : 'ANALYZING';
+    await this.store?.transitionCase(pending.caseId, nextCaseState);
     this.status(workerStatus, status === 'COMPLETED' ? observation.summary : `Worker did not produce verified evidence: ${observation.summary}`,
-      pending.caseId, { caseId: pending.caseId, taskId, result, observation, caseState: status === 'COMPLETED' ? 'ANALYZING' : 'INVESTIGATING' });
+      pending.caseId, { caseId: pending.caseId, taskId, result, observation, caseState: nextCaseState });
+    if (durableLoop?.decision.kind === 'DISPATCH') {
+      if (this.store?.claimPendingDispatches) await this.drainOutbox();
+      else await this.dispatchDecision(durableLoop, pending.task.taskId);
+    }
+  }
+
+  private async drainOutbox(): Promise<void> {
+    if (!this.store?.claimPendingDispatches || this.drainingOutbox || this.halted) return;
+    this.drainingOutbox = true;
+    try {
+      const claims = await this.store.claimPendingDispatches(this.outboxClaimOwner, 25);
+      for (const claim of claims) await this.dispatchDecision(claim.loop, claim.parentTaskId, claim.claimOwner);
+    } catch (error) {
+      console.error('[CommandCenter] Outbox recovery failed safely:', error instanceof Error ? error.message : 'unknown error');
+    } finally {
+      this.drainingOutbox = false;
+    }
+  }
+
+  private async dispatchDecision(loop: CommitObservationResult, parentTaskId?: string, claimOwner?: string): Promise<void> {
+    const action = loop.decision.action;
+    if (!action) return;
+    const capability = capabilityRegistry[action.action];
+    if (!capability || capability.target !== action.target || action.riskLevel !== 'read_only') {
+      this.status('DENIED', 'The planned follow-up capability is not allowed.', loop.run.caseId,
+        { caseId: loop.run.caseId, caseState: 'INVESTIGATING' });
+      return;
+    }
+    const taskId = `TSK-${loop.decision.decisionId.slice(4)}`;
+    const task: GssTaskContract = {
+      schemaVersion: TASK_SCHEMA_VERSION,
+      taskId,
+      caseId: loop.run.caseId,
+      idempotencyKey: `decision:${loop.decision.decisionId}`,
+      source: 'standalone',
+      target: action.target,
+      action: action.action,
+      parameters: action.parameters,
+      riskLevel: 'read_only',
+      contextRefs: loop.frontier.evidenceRefs,
+      timeoutMs: 15_000,
+      createdAt: loop.decision.createdAt,
+    };
+    await this.store?.createTask(task, 'gss-planner', {
+      runId: loop.run.runId,
+      ...(parentTaskId ? { parentTaskId } : {}),
+      actionFingerprint: action.fingerprint,
+    });
+    const agentId = action.target === 'cli' ? 'cli-worker-agent' : action.target === 'ide' ? 'ide-worker-agent' : 'siem-worker-agent';
+    const instruction = capability.instruction ?? String(action.parameters.question ?? action.parameters.query ?? action.action);
+    const delivered = await this.dispatchPreparedTask(task, agentId, instruction, loop.run.runId);
+    if (delivered) await this.store?.markOutboxPublished?.(loop.outbox.eventId, claimOwner);
+    else if (claimOwner) await this.store?.releaseOutbox?.(loop.outbox.eventId, claimOwner,
+      `${agentId} was offline`, new Date(Date.now() + 5_000).toISOString());
+  }
+
+  private async dispatchPreparedTask(task: GssTaskContract, agentId: string, instruction: string, runId?: string): Promise<boolean> {
+    const workerPayload: Record<string, unknown> = { ...task, incidentId: task.caseId, instruction };
+    if (task.target === 'cli') workerPayload.token = this.signer.sign({
+      agentId,
+      role: 'STANDALONE',
+      permissions: ['EXECUTE_RECON'],
+      timestamp: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      taskId: task.taskId,
+      incidentId: task.caseId,
+      instructionHash: createHash('sha256').update(instruction).digest('hex'),
+    });
+    const timer = setTimeout(() => { void this.timeoutTask(task.taskId); }, task.timeoutMs);
+    this.pending.set(task.taskId, { caseId: task.caseId, agentId, task, ...(runId ? { runId } : {}), startedAt: Date.now(), timer });
+    const delivered = this.server.sendToAgent(agentId, {
+      source: 'STANDALONE',
+      target: task.target === 'cli' ? 'CLI_DAEMON' : task.target === 'ide' ? 'IDE_AGENT' : 'SIEM',
+      type: 'TASK', incident_id: task.caseId, payload: workerPayload,
+    });
+    if (!delivered) {
+      clearTimeout(timer);
+      this.pending.delete(task.taskId);
+      await this.store?.updateTask(task.taskId, 'BLOCKED', agentId);
+      this.status('OFFLINE', `${agentId} is not connected. Nothing was executed.`, task.caseId,
+        { caseId: task.caseId, taskId: task.taskId, task, caseState: 'COLLECTING_EVIDENCE' });
+      return false;
+    }
+    await this.store?.updateTask(task.taskId, 'DISPATCHED', agentId);
+    this.status('DISPATCHED', `Task ${task.taskId} was routed to ${agentId}.`, task.caseId,
+      { caseId: task.caseId, taskId: task.taskId, task, caseState: 'COLLECTING_EVIDENCE' });
+    return true;
   }
 
   private async timeoutTask(taskId: string): Promise<void> {

@@ -13,3 +13,4 @@ export type { AutonomyLevel } from './modules/autonomy-manager.js';
 export * from './investigation/types.js';
 export * from './investigation/correlation.js';
 export * from './runtime/contracts.js';
+export * from './runtime/investigation-loop.js';

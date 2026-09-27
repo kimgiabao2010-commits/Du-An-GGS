@@ -1,22 +1,54 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
-import type { CaseState, GssResultContract, GssTaskContract, ObservationPack, TaskStatus } from '@asq/sdk';
+import type {
+  CaseState, GssResultContract, GssTaskContract, InvestigationRun, NextStepProposal, ObservationPack, TaskStatus,
+} from '@asq/sdk';
+import { actionFingerprint, sha256Canonical } from '@asq/sdk';
+import {
+  PostgresInvestigationLoopStore,
+  commitObservationAndDecisionWithClient,
+  type ClaimedOutboxEvent,
+  type CommitObservationResult,
+} from './loop-store.js';
 
 export type MessageRole = 'USER' | 'ASSISTANT' | 'SYSTEM' | 'WORKER';
+
+export interface ClaimedDispatch {
+  claimOwner: string;
+  parentTaskId?: string;
+  loop: CommitObservationResult;
+}
 
 export interface RuntimeStore {
   ready(): Promise<void>;
   ensureCase(caseId: string, actorId: string): Promise<void>;
   transitionCase(caseId: string, state: CaseState): Promise<void>;
   appendMessage(caseId: string, role: MessageRole, content: string, metadata?: Record<string, unknown>): Promise<string>;
-  createTask(task: GssTaskContract, requestedBy: string): Promise<{ created: boolean }>;
+  ensureInvestigationRun?(caseId: string, requestedBy: string): Promise<InvestigationRun>;
+  createTask(task: GssTaskContract, requestedBy: string, linkage?: {
+    runId?: string;
+    parentTaskId?: string;
+    actionFingerprint?: string;
+  }): Promise<{ created: boolean }>;
   updateTask(taskId: string, status: TaskStatus, assignedWorker?: string): Promise<void>;
-  recordResult(result: GssResultContract, observation?: ObservationPack): Promise<void>;
+  claimPendingDispatches?(claimOwner: string, limit?: number): Promise<ClaimedDispatch[]>;
+  markOutboxPublished?(eventId: string, claimOwner?: string): Promise<boolean>;
+  releaseOutbox?(eventId: string, claimOwner: string, error: string, retryAt: string): Promise<boolean>;
+  recordResult(result: GssResultContract, observation?: ObservationPack, loop?: {
+    runId: string;
+    source: string;
+    artifactHash?: string;
+    proposal: NextStepProposal;
+  }): Promise<void | CommitObservationResult>;
   close(): Promise<void>;
 }
 
 export class PostgresRuntimeStore implements RuntimeStore {
-  public constructor(private readonly pool: Pool) {}
+  private readonly loopStore: PostgresInvestigationLoopStore;
+
+  public constructor(private readonly pool: Pool) {
+    this.loopStore = new PostgresInvestigationLoopStore(pool);
+  }
 
   public static fromEnvironment(): PostgresRuntimeStore | null {
     const connectionString = process.env.DATABASE_URL;
@@ -36,6 +68,10 @@ export class PostgresRuntimeStore implements RuntimeStore {
       ON CONFLICT (case_id) DO NOTHING`, [caseId, actorId]);
   }
 
+  public async ensureInvestigationRun(caseId: string, requestedBy: string): Promise<InvestigationRun> {
+    return this.loopStore.ensureRun({ caseId, requestedBy });
+  }
+
   public async transitionCase(caseId: string, state: CaseState): Promise<void> {
     await this.pool.query('UPDATE cases SET state = $2, updated_at = now() WHERE case_id = $1', [caseId, state]);
   }
@@ -47,14 +83,43 @@ export class PostgresRuntimeStore implements RuntimeStore {
     return messageId;
   }
 
-  public async createTask(task: GssTaskContract, requestedBy: string): Promise<{ created: boolean }> {
+  public async createTask(task: GssTaskContract, requestedBy: string, linkage: {
+    runId?: string;
+    parentTaskId?: string;
+    actionFingerprint?: string;
+  } = {}): Promise<{ created: boolean }> {
     const result = await this.pool.query<{ inserted: boolean }>(`INSERT INTO runtime_tasks
-      (task_id, case_id, idempotency_key, source, target, action, parameters, risk_level, context_refs, timeout_ms, status, requested_by, created_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'QUEUED',$11,$12)
+      (task_id, case_id, idempotency_key, source, target, action, parameters, risk_level, context_refs, timeout_ms,
+       status, requested_by, created_at, run_id, parent_task_id, action_fingerprint)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'QUEUED',$11,$12,$13,$14,$15)
       ON CONFLICT (idempotency_key) DO NOTHING RETURNING true AS inserted`,
       [task.taskId, task.caseId, task.idempotencyKey, task.source, task.target, task.action,
-        JSON.stringify(task.parameters), task.riskLevel, task.contextRefs, task.timeoutMs, requestedBy, task.createdAt]);
+        JSON.stringify(task.parameters), task.riskLevel, task.contextRefs, task.timeoutMs, requestedBy, task.createdAt,
+        linkage.runId ?? null, linkage.parentTaskId ?? null, linkage.actionFingerprint ?? null]);
     return { created: result.rows[0]?.inserted ?? false };
+  }
+
+  public async claimPendingDispatches(claimOwner: string, limit = 25): Promise<ClaimedDispatch[]> {
+    const claims = await this.loopStore.claimOutbox(claimOwner, limit);
+    const dispatches: ClaimedDispatch[] = [];
+    for (const claim of claims) {
+      const recovered = await this.recoverDispatch(claim);
+      if (recovered) dispatches.push({ claimOwner, ...recovered });
+      else await this.loopStore.releaseOutbox(claim.event.eventId, claimOwner,
+        'Outbox payload did not contain a valid dispatch decision', new Date(Date.now() + 60_000).toISOString());
+    }
+    return dispatches;
+  }
+
+  public async markOutboxPublished(eventId: string, claimOwner?: string): Promise<boolean> {
+    if (claimOwner) return this.loopStore.markOutboxPublished(eventId, claimOwner);
+    const result = await this.pool.query(`UPDATE control_outbox SET published_at=now(), locked_by=NULL, locked_at=NULL,
+      last_error=NULL WHERE event_id=$1 AND published_at IS NULL`, [eventId]);
+    return result.rowCount === 1;
+  }
+
+  public async releaseOutbox(eventId: string, claimOwner: string, error: string, retryAt: string): Promise<boolean> {
+    return this.loopStore.releaseOutbox(eventId, claimOwner, error, retryAt);
   }
 
   public async updateTask(taskId: string, status: TaskStatus, assignedWorker?: string): Promise<void> {
@@ -64,8 +129,13 @@ export class PostgresRuntimeStore implements RuntimeStore {
       updated_at = now() WHERE task_id = $1`, [taskId, status, assignedWorker ?? null]);
   }
 
-  public async recordResult(result: GssResultContract, observation?: ObservationPack): Promise<void> {
-    await this.transaction(async client => {
+  public async recordResult(result: GssResultContract, observation?: ObservationPack, loop?: {
+    runId: string;
+    source: string;
+    artifactHash?: string;
+    proposal: NextStepProposal;
+  }): Promise<void | CommitObservationResult> {
+    return this.transaction(async client => {
       await client.query(`INSERT INTO runtime_executions
         (task_id, case_id, executor, status, result, evidence_refs, errors, metrics, completed_at)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
@@ -105,6 +175,16 @@ export class PostgresRuntimeStore implements RuntimeStore {
       await client.query(`INSERT INTO audit_events (event_type,severity,actor_id,target_resource,action_payload,incident_id,event_hash)
         VALUES ('RUNTIME_RESULT','INFO',$1,$2,$3,$4,$5) ON CONFLICT (event_hash) DO NOTHING`,
         [result.executor, result.taskId, auditPayload, result.caseId, eventHash]);
+      if (observation && loop) {
+        return commitObservationAndDecisionWithClient(client, {
+          runId: loop.runId,
+          observation,
+          source: loop.source,
+          ...(loop.artifactHash ? { artifactHash: loop.artifactHash } : {}),
+          proposal: loop.proposal,
+        });
+      }
+      return undefined;
     });
   }
 
@@ -113,5 +193,29 @@ export class PostgresRuntimeStore implements RuntimeStore {
     try { await client.query('BEGIN'); const value = await operation(client); await client.query('COMMIT'); return value; }
     catch (error) { await client.query('ROLLBACK'); throw error; }
     finally { client.release(); }
+  }
+
+  private async recoverDispatch(claim: ClaimedOutboxEvent): Promise<Omit<ClaimedDispatch, 'claimOwner'> | null> {
+    const payload = claim.event.payload;
+    const decision = payload.decision as CommitObservationResult['decision'] | undefined;
+    const expectedEventHash = sha256Canonical({
+      aggregateId: claim.event.aggregateId,
+      eventType: claim.event.eventType,
+      payload,
+    });
+    if (claim.event.eventType !== 'TASK_DISPATCH_REQUESTED' || claim.event.eventHash !== expectedEventHash ||
+      !decision || decision.schemaVersion !== 'gss.next-step.v1' || decision.kind !== 'DISPATCH' || !decision.action ||
+      decision.runId !== claim.event.aggregateId || decision.action.riskLevel !== 'read_only' ||
+      decision.action.fingerprint !== actionFingerprint(decision.action)) return null;
+    const [run, frontier] = await Promise.all([
+      this.loopStore.getRun(decision.runId),
+      this.loopStore.getFrontier(decision.runId, decision.frontierVersion),
+    ]);
+    if (!run || !frontier || run.caseId !== decision.caseId || run.policyVersion !== decision.policyVersion ||
+      frontier.runId !== run.runId || frontier.version !== decision.frontierVersion || frontier.caseId !== decision.caseId) return null;
+    return {
+      ...(typeof payload.parentTaskId === 'string' && payload.parentTaskId ? { parentTaskId: payload.parentTaskId } : {}),
+      loop: { created: false, run, frontier, decision, outbox: claim.event },
+    };
   }
 }

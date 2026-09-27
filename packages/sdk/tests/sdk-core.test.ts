@@ -3,6 +3,7 @@ import { ASQClient } from '../src/asq-client.js';
 import { ASQgRPCClient } from '../src/transport/grpc-client.ts';
 import { isGssTaskContract, isIdeInvestigationRecord, TASK_SCHEMA_VERSION } from '../src/runtime/contracts.ts';
 import { correlateEvidence } from '../src/investigation/correlation.ts';
+import { isInvestigationEvidence, isInvestigationVerdict } from '../src/investigation/types.ts';
 
 // Mock ws
 vi.mock('ws', () => {
@@ -86,6 +87,19 @@ describe('ASQClient Core SDK', () => {
         resultCount: 0, truncated: false, redaction: 'ALLOWLISTED_FIELDS_ONLY' } });
     expect(verdict.verdict).toBe('INSUFFICIENT_EVIDENCE');
     expect(verdict.evidenceIds).toEqual(['E-1']);
+  });
+
+  it('validates SIEM evidence and binds verdicts to the correlated task and evidence', () => {
+    const evidence = { evidenceId: 'E-1', incidentId: 'C-1', taskId: 'T-1', eventIds: ['event-1'], events: [{ id: 'event-1' }],
+      provenance: { adapter: 'google-chronicle', adapterVersion: 'v1', queryHash: 'a'.repeat(64), sourceInstance: 'instance',
+        queriedAt: new Date().toISOString(), timeRange: { start: new Date(0).toISOString(), end: new Date(1).toISOString() },
+        resultCount: 1, truncated: false, redaction: 'ALLOWLISTED_FIELDS_ONLY' } };
+    const verdict = { incidentId: 'C-1', taskId: 'T-1', verdict: 'SUSPICIOUS', evidenceIds: ['E-1'],
+      policyVersion: 'gss.deterministic-verdict.v1', rationale: 'matching event', createdAt: new Date().toISOString() };
+    expect(isInvestigationEvidence(evidence, { incidentId: 'C-1', taskId: 'T-1' })).toBe(true);
+    expect(isInvestigationVerdict(verdict, { incidentId: 'C-1', taskId: 'T-1', evidenceId: 'E-1' })).toBe(true);
+    expect(isInvestigationEvidence({ ...evidence, taskId: 'other' }, { incidentId: 'C-1', taskId: 'T-1' })).toBe(false);
+    expect(isInvestigationVerdict({ ...verdict, evidenceIds: ['E-2'] }, { evidenceId: 'E-1' })).toBe(false);
   });
 
   it('validates IDE investigation provenance and rejects unsafe paths or mismatched counts', () => {

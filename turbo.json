@@ -13,7 +13,9 @@
       "cache": true
     },
     "test": {
-      "dependsOn": [],
+      "dependsOn": [
+        "^build"
+      ],
       "outputs": [],
       "cache": false
     },

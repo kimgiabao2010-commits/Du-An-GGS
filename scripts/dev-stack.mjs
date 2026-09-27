@@ -8,6 +8,7 @@ import { connect } from 'node:net';
 const dryRun = process.argv.includes('--dry-run');
 const now = Date.now();
 const root = fileURLToPath(new URL('../', import.meta.url));
+const databaseUrl = process.env.DATABASE_URL?.trim();
 const secret = process.env.ASQ_JWT_SECRET && process.env.ASQ_JWT_SECRET.length >= 32
   ? process.env.ASQ_JWT_SECRET : randomBytes(32).toString('base64url');
 // Fixed preview credentials requested for the one-button local runtime. The
@@ -40,6 +41,7 @@ const runtimeEnv = {
 
 const tsRuntime = ['--loader', 'ts-node/esm'];
 const nextBin = resolve(root, 'node_modules/next/dist/bin/next');
+const turboBin = resolve(root, 'node_modules/turbo/bin/turbo');
 const webRoot = resolve(root, 'apps/standalone');
 const services = [
   ['Command Center', process.execPath, [...tsRuntime, resolve(root, 'services/standalone/src/main.ts')], root],
@@ -75,27 +77,46 @@ if (dryRun) {
   console.log(process.env.GSS_CHRONICLE_PROJECT && process.env.GSS_CHRONICLE_LOCATION && process.env.GSS_CHRONICLE_INSTANCE && process.env.GSS_CHRONICLE_ENDPOINT
     ? 'OK: Chronicle read-only worker configured.' : 'WARNING: Chronicle worker will remain disabled until its four GSS_CHRONICLE_* settings are configured.');
   console.log(occupied.length ? `WARNING: occupied ports: ${occupied.join(', ')}.` : 'OK: ports 3000 and 4000 are available.');
-  console.log(process.env.DATABASE_URL ? 'OK: PostgreSQL persistence configured.' : 'WARNING: DATABASE_URL is not configured; runtime will be persistence-degraded and will not use SQLite.');
-  process.exit(0);
+  console.log(databaseUrl ? 'OK: PostgreSQL persistence configured; migrations will run before startup.' :
+    'ERROR: DATABASE_URL is required because PostgreSQL is the durable source of truth.');
+  process.exit(databaseUrl ? 0 : 1);
 }
 
-console.log('Building a stable local production UI...');
-const webBuild = spawnSync(process.execPath, [nextBin, 'build'], {
-  cwd: webRoot,
+if (!databaseUrl) {
+  console.error('Cannot start GSS: DATABASE_URL is required.');
+  console.error('Add a PostgreSQL connection URL to .env, then press Ctrl+Shift+B again.');
+  process.exit(1);
+}
+
+console.log('Checking PostgreSQL and applying immutable migrations...');
+const migration = spawnSync(process.execPath, [resolve(root, 'scripts/migrate-postgres.mjs')], {
+  cwd: root,
   env: runtimeEnv,
   stdio: 'inherit',
   windowsHide: true,
 });
-if (webBuild.status !== 0) {
-  console.error('Web UI build failed; backend and workers were not started.');
-  process.exit(webBuild.status ?? 1);
+if (migration.status !== 0) {
+  console.error('PostgreSQL migration failed; no application service was started.');
+  process.exit(migration.status ?? 1);
+}
+
+console.log('Building runtime packages and the stable production UI...');
+const workspaceBuild = spawnSync(process.execPath, [turboBin, 'run', 'build'], {
+  cwd: root,
+  env: runtimeEnv,
+  stdio: 'inherit',
+  windowsHide: true,
+});
+if (workspaceBuild.status !== 0) {
+  console.error('Workspace build failed; backend, workers, and UI were not started.');
+  process.exit(workspaceBuild.status ?? 1);
 }
 
 console.log('\nGSS local stack');
 console.log('URL:      http://localhost:3000');
 console.log('Username: ' + username);
 console.log('Password: ' + password + ' (insecure local demo only)');
-console.log(process.env.DATABASE_URL ? 'Storage:  PostgreSQL' : 'Storage:  DEGRADED (configure DATABASE_URL for durable state)');
+console.log('Storage:  PostgreSQL (migrations verified)');
 console.log('These credentials are only for this local runtime.\n');
 
 const children = new Set();
