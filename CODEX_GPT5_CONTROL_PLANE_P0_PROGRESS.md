@@ -31,6 +31,8 @@ P0 establishes the first durable Control Plane boundary for GSS. The service is 
 - `.env.example` now documents `CONTROL_PLANE_URL`, `CONTROL_PLANE_PORT`, and configurable model cost rates.
 - Added `npm run readiness` to report hard prerequisites without printing secrets or claiming live external verification.
 - PostgreSQL live connectivity and durable-loop integration now PASS locally after correcting the partial-index conflict target.
+- Mock sandbox success has been removed; sandbox execution is now fail-closed unless explicit Docker staging mode is enabled.
+- Sandbox boundary tests pass for default blocking and command allowlist enforcement; Docker execution remains an external hard gate.
 - GitHub Actions now has a PostgreSQL service job that runs migrations before integration tests.
 - `git diff --check`: PASS.
 
