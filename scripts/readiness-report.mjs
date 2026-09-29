@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { execFileSync } from 'node:child_process';
+import { Pool } from 'pg';
 
 const checks = [];
 function check(name, pass, detail, hard = true) {
@@ -18,8 +19,24 @@ function commandAvailable(command, args) {
 const chronicleReady = ['GSS_CHRONICLE_PROJECT', 'GSS_CHRONICLE_LOCATION', 'GSS_CHRONICLE_INSTANCE', 'GSS_CHRONICLE_ENDPOINT']
   .every(name => Boolean(process.env[name]?.trim()));
 
+let postgresLive = false;
+let postgresDetail = 'DATABASE_URL is missing.';
+if (process.env.DATABASE_URL?.trim()) {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 3_000 });
+  try {
+    await pool.query('SELECT 1');
+    postgresLive = true;
+    postgresDetail = 'PostgreSQL accepted SELECT 1.';
+  } catch (error) {
+    postgresDetail = `PostgreSQL connectivity failed: ${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    await pool.end().catch(() => undefined);
+  }
+}
+
 check('PostgreSQL configuration', Boolean(process.env.DATABASE_URL?.trim()),
-  process.env.DATABASE_URL ? 'DATABASE_URL is configured; live connectivity still requires a database check.' : 'DATABASE_URL is missing.');
+  process.env.DATABASE_URL ? 'DATABASE_URL is configured.' : 'DATABASE_URL is missing.');
+check('PostgreSQL connectivity', postgresLive, postgresDetail);
 check('Control Plane configuration', true,
   process.env.CONTROL_PLANE_URL || 'Using Ctrl+Shift+B loopback default http://127.0.0.1:4100.');
 check('Chronicle staging configuration', chronicleReady,

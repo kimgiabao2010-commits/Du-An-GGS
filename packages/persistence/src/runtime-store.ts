@@ -188,7 +188,7 @@ export class PostgresRuntimeStore implements RuntimeStore {
       const auditPayload = JSON.stringify({ taskId: result.taskId, status: result.status, evidenceRefs: result.evidenceRefs });
       const eventHash = createHash('sha256').update(`RUNTIME_RESULT:${result.caseId}:${auditPayload}`).digest('hex');
       await client.query(`INSERT INTO audit_events (event_type,severity,actor_id,target_resource,action_payload,incident_id,event_hash)
-        VALUES ('RUNTIME_RESULT','INFO',$1,$2,$3,$4,$5) ON CONFLICT (event_hash) DO NOTHING`,
+        VALUES ('RUNTIME_RESULT','INFO',$1,$2,$3,$4,$5) ON CONFLICT (event_hash) WHERE event_hash IS NOT NULL DO NOTHING`,
         [result.executor, result.taskId, auditPayload, result.caseId, eventHash]);
       if (observation && loop) {
         return commitObservationAndDecisionWithClient(client, {

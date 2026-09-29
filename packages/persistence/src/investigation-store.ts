@@ -130,7 +130,7 @@ export class PostgresInvestigationStore {
     const serialized = JSON.stringify(payload);
     const eventHash = createHash('sha256').update(`${eventType}:${incidentId}:${actorId}:${serialized}`).digest('hex');
     await client.query(`INSERT INTO audit_events (event_type, severity, actor_id, target_resource, action_payload, incident_id, event_hash)
-      VALUES ($1,'INFO',$2,$3,$4,$5,$6) ON CONFLICT (event_hash) DO NOTHING`,
+      VALUES ($1,'INFO',$2,$3,$4,$5,$6) ON CONFLICT (event_hash) WHERE event_hash IS NOT NULL DO NOTHING`,
       [eventType, actorId, incidentId, serialized, incidentId, eventHash]);
   }
 

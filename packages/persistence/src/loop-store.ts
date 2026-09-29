@@ -176,7 +176,7 @@ export async function commitObservationAndDecisionWithClient(
 
   await client.query(`INSERT INTO audit_events
     (event_type,severity,actor_id,target_resource,action_payload,incident_id,event_hash)
-    VALUES ('NEXT_STEP_DECIDED','INFO','gss-planner',$1,$2,$3,$4) ON CONFLICT (event_hash) DO NOTHING`,
+    VALUES ('NEXT_STEP_DECIDED','INFO','gss-planner',$1,$2,$3,$4) ON CONFLICT (event_hash) WHERE event_hash IS NOT NULL DO NOTHING`,
     [input.runId, JSON.stringify({ observationId: input.observation.observationId, frontierVersion: frontier.version,
       decisionId: decision.decisionId, kind: decision.kind, reasonCode: decision.reasonCode }), run.caseId, outbox.eventHash]);
   return { created: true, run: mapRun(updatedRun), frontier, decision, outbox };
