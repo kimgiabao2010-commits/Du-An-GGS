@@ -24,6 +24,9 @@ P0 establishes the first durable Control Plane boundary for GSS. The service is 
 - `npm.cmd run typecheck`: PASS.
 - `npm.cmd run build`: PASS.
 - `npm.cmd run dev:check`: PASS.
+- Control Plane HTTP client contract test: PASS.
+- Integration suite: 42 tests PASS.
+- GitHub Actions now has a PostgreSQL service job that runs migrations before integration tests.
 - `git diff --check`: PASS.
 
 ## BLOCKED

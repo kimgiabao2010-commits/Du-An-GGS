@@ -16,3 +16,32 @@ jobs:
       - run: npm run build
       - run: npm run typecheck
       - run: npm test
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: gss
+          POSTGRES_PASSWORD: gss
+          POSTGRES_DB: gss_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gss -d gss_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://gss:gss@127.0.0.1:5432/gss_test
+      ASQ_JWT_SECRET: ci-only-secret-with-at-least-32-characters
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate
+      - run: npm run test:integration
