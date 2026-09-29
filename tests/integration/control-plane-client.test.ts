@@ -27,6 +27,7 @@ beforeAll(async () => {
     if (request.url?.endsWith('/artifacts/sign')) return reply(response, { signature: {
       algorithm: 'EdDSA', keyId: 'test-key', artifactHash: 'a'.repeat(64), compactJws: 'header.payload.signature',
     } });
+    if (request.url?.endsWith('/artifacts/register')) return reply(response, { artifactId: 'ART-test', created: true });
     return reply(response, {});
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()));
@@ -64,6 +65,9 @@ describe('Control Plane HTTP client', () => {
     const signature = await client.signArtifact({ artifactHash: 'a'.repeat(64), caseId: task.caseId,
       taskId: task.taskId, createdAt: new Date().toISOString() });
     expect(signature.keyId).toBe('test-key');
+    const artifact = await client.registerArtifact({ caseId: task.caseId, taskId: task.taskId, sha256: 'a'.repeat(64),
+      bytes: 2, ref: 'artifact://evidence/test.txt', storageProvider: 'filesystem', mediaType: 'text/plain' });
+    expect(artifact.created).toBe(true);
     await client.claimPendingDispatches('owner');
     await client.markOutboxPublished('EVT-test', 'owner');
     await client.releaseOutbox('EVT-test', 'owner', 'offline', new Date().toISOString());
@@ -78,6 +82,7 @@ describe('Control Plane HTTP client', () => {
       'POST /control/v1/results',
       'POST /control/v1/model-usage',
       'POST /control/v1/artifacts/sign',
+      'POST /control/v1/artifacts/register',
       'POST /control/v1/outbox/claim',
       'POST /control/v1/outbox/EVT-test/publish',
       'POST /control/v1/outbox/EVT-test/release',

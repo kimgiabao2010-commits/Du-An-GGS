@@ -44,6 +44,8 @@ P0 establishes the first durable Control Plane boundary for GSS. The service is 
 - UI trust boundaries now use canonical `/standalone/*` and `/control/*` routes with server-side HMAC session verification and role enforcement before rendering.
 - Local login issues the roadmap-aligned `SECURITY_ADMIN` role; WebSocket command authorization accepts it while retaining the legacy role only for compatibility tests.
 - Production preview HTTP verification PASS: anonymous Control Plane access redirects to login, login issues an HttpOnly cookie, authenticated `/standalone` and `/control/executions` return `200`, and legacy routes redirect to canonical workspace URLs.
+- PostgreSQL now stores immutable content-addressed artifact metadata (`case → task → SHA-256 → storage ref`) and rejects conflicting replay metadata.
+- Control Plane signs only artifacts already registered against a real case/task; Command Center rejects evidence when durable metadata registration fails.
 - Local `npm audit` could not reach the npm advisory endpoint; security result remains NOT RUN locally and is delegated to CI.
 - GitHub Actions now has a PostgreSQL service job that runs migrations before integration tests.
 - `git diff --check`: PASS.

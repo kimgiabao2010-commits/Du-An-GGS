@@ -18,6 +18,8 @@ export interface ControlPlaneTaskClient {
   markOutboxPublished(eventId: string, claimOwner?: string): Promise<boolean>;
   releaseOutbox(eventId: string, claimOwner: string, error: string, retryAt: string): Promise<boolean>;
   recordModelUsage(record: ModelUsageRecord): Promise<{ created: boolean }>;
+  registerArtifact(input: { caseId: string; taskId: string; sha256: string; bytes: number; ref: string;
+    storageProvider: 'filesystem' | 's3'; mediaType: string; retentionUntil?: string }): Promise<{ artifactId: string; created: boolean }>;
   signArtifact(input: { artifactHash: string; caseId: string; taskId: string; createdAt: string }): Promise<ArtifactSignature>;
   createTask(task: GssTaskContract, requestedBy: string, linkage?: TaskLinkage): Promise<{ created: boolean; task?: GssTaskContract }>;
   recordResult(result: GssResultContract, observation?: ObservationPack, loop?: {
@@ -112,6 +114,15 @@ export class HttpControlPlaneClient implements ControlPlaneTaskClient {
     }, [200]);
     if (!payload.signature || typeof payload.signature !== 'object') throw new Error('Control Plane returned no artifact signature');
     return payload.signature as unknown as ArtifactSignature;
+  }
+
+  public async registerArtifact(input: { caseId: string; taskId: string; sha256: string; bytes: number; ref: string;
+    storageProvider: 'filesystem' | 's3'; mediaType: string; retentionUntil?: string }) {
+    const payload = await this.request('/control/v1/artifacts/register', {
+      method: 'POST', headers: { 'x-gss-actor': 'command-center' }, body: JSON.stringify(input),
+    }, [200, 201]);
+    if (typeof payload.artifactId !== 'string') throw new Error('Control Plane returned no artifact id');
+    return { artifactId: payload.artifactId, created: payload.created === true };
   }
 
   public async createTask(task: GssTaskContract, requestedBy: string, linkage: TaskLinkage = {}) {

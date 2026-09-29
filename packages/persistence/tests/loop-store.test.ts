@@ -93,6 +93,13 @@ describe('PostgreSQL investigation loop transaction', () => {
     expect(migration).toContain('published_at TIMESTAMPTZ');
   });
 
+  it('defines immutable durable artifact metadata', async () => {
+    const migration = await readFile(resolve('../../infra/postgres/migrations/005_artifact_registry.sql'), 'utf8');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS artifact_registry');
+    expect(migration).toContain('UNIQUE (case_id, task_id, sha256)');
+    expect(migration).toContain("storage_provider IN ('filesystem', 's3')");
+  });
+
   it('rejects a persisted frontier whose payload no longer matches its hash', async () => {
     const frontier: EvidenceFrontier = {
       schemaVersion: 'gss.evidence-frontier.v1', runId: 'run-1', caseId: 'case-1', version: 1,

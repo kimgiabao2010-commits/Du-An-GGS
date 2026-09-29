@@ -14,7 +14,7 @@ import {
   type GssTaskContract,
   type CapabilityAction,
 } from '@asq/sdk';
-import { PostgresInvestigationStore, PostgresRuntimeStore } from '@asq/persistence';
+import { PostgresArtifactRegistry, PostgresInvestigationStore, PostgresRuntimeStore } from '@asq/persistence';
 
 const MAX_BODY_BYTES = 1_000_000;
 const ACTIONS = new Set<CapabilityAction>([
@@ -101,6 +101,7 @@ export class ControlPlaneServer {
   private readonly pool: Pool;
   private readonly runtime: PostgresRuntimeStore;
   private readonly investigations: PostgresInvestigationStore;
+  private readonly artifacts: PostgresArtifactRegistry;
   private readonly artifactSigningPrivateKey?: KeyObject;
   private readonly artifactSigningKeyId?: string;
   private readonly internalToken: string;
@@ -113,6 +114,7 @@ export class ControlPlaneServer {
     this.pool = new Pool({ connectionString, max: 10, ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: true } : undefined });
     this.runtime = new PostgresRuntimeStore(this.pool);
     this.investigations = new PostgresInvestigationStore(this.pool);
+    this.artifacts = new PostgresArtifactRegistry(this.pool);
     const encodedSigningKey = process.env.GSS_ARTIFACT_SIGNING_PRIVATE_KEY_BASE64?.trim();
     this.artifactSigningPrivateKey = encodedSigningKey
       ? createPrivateKey(Buffer.from(encodedSigningKey, 'base64').toString('utf8')) : undefined;
@@ -170,6 +172,7 @@ export class ControlPlaneServer {
       if (method === 'POST' && releaseMatch) return this.releaseOutbox(decodeURIComponent(releaseMatch[1]), request, response);
       if (method === 'GET' && /^\/control\/v1\/tasks\/[^/]+$/.test(url.pathname)) return this.getTask(url.pathname.split('/').pop()!, response);
       if (method === 'POST' && url.pathname === '/control/v1/results') return this.recordResult(request, response);
+      if (method === 'POST' && url.pathname === '/control/v1/artifacts/register') return this.registerArtifact(request, response);
       if (method === 'POST' && url.pathname === '/control/v1/artifacts/sign') return this.signStoredArtifact(request, response);
       if (method === 'POST' && url.pathname === '/control/v1/model-usage') return this.recordModelUsage(request, response);
       const frontierMatch = url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/frontier$/);
@@ -307,10 +310,47 @@ export class ControlPlaneServer {
     }
     const task = await this.pool.query('SELECT 1 FROM runtime_tasks WHERE task_id=$1 AND case_id=$2', [taskId, caseId]);
     if (!task.rows[0]) return json(response, 404, { error: 'task_not_found' });
+    if (!await this.artifacts.exists(caseId, taskId, artifactHash)) return json(response, 404, { error: 'artifact_not_registered' });
     const signature: ArtifactSignature = signArtifact({
       artifactHash, caseId, taskId, keyId: this.artifactSigningKeyId, createdAt,
     }, this.artifactSigningPrivateKey);
     return json(response, 200, { signature });
+  }
+
+  private async registerArtifact(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const input = await body(request);
+    const caseId = requiredString(input.caseId, 'caseId');
+    const taskId = requiredString(input.taskId, 'taskId');
+    const sha256 = requiredString(input.sha256, 'sha256').toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(sha256)) throw Object.assign(new Error('sha256 must be a SHA-256 hex digest'), { statusCode: 422 });
+    const bytes = input.bytes;
+    if (typeof bytes !== 'number' || !Number.isSafeInteger(bytes) || bytes < 0) {
+      throw Object.assign(new Error('bytes must be a non-negative integer'), { statusCode: 422 });
+    }
+    const storageProvider = requiredString(input.storageProvider, 'storageProvider');
+    if (!['filesystem', 's3'].includes(storageProvider)) throw Object.assign(new Error('storageProvider is invalid'), { statusCode: 422 });
+    const retentionUntil = typeof input.retentionUntil === 'string' ? input.retentionUntil : undefined;
+    if (retentionUntil && Number.isNaN(Date.parse(retentionUntil))) {
+      throw Object.assign(new Error('retentionUntil must be an ISO timestamp'), { statusCode: 422 });
+    }
+    const task = await this.pool.query('SELECT 1 FROM runtime_tasks WHERE task_id=$1 AND case_id=$2', [taskId, caseId]);
+    if (!task.rows[0]) return json(response, 404, { error: 'task_not_found' });
+    let result: { artifactId: string; created: boolean };
+    try {
+      result = await this.artifacts.register({
+        caseId, taskId, sha256, bytes,
+        ref: requiredString(input.ref, 'ref'),
+        storageProvider: storageProvider as 'filesystem' | 's3',
+        mediaType: requiredString(input.mediaType, 'mediaType'),
+        ...(retentionUntil ? { retentionUntil } : {}),
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('conflicts with immutable metadata')) {
+        throw Object.assign(error, { statusCode: 409 });
+      }
+      throw error;
+    }
+    return json(response, result.created ? 201 : 200, result);
   }
 
   private async recordModelUsage(request: IncomingMessage, response: ServerResponse): Promise<void> {

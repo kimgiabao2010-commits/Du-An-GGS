@@ -268,17 +268,27 @@ export class CentralCommandOrchestrator {
     const completedAt = new Date().toISOString();
     const signatureRequired = process.env.GSS_REQUIRE_ARTIFACT_SIGNATURE === 'true';
     let artifactSignature: ArtifactSignature | undefined;
-    let artifactSignatureState: 'SIGNED' | 'UNSIGNED_LOCAL' | 'SIGNING_FAILED' = 'UNSIGNED_LOCAL';
+    let artifactSignatureState: 'SIGNED' | 'UNSIGNED_LOCAL' | 'SIGNING_FAILED' | 'REGISTRATION_FAILED' = 'UNSIGNED_LOCAL';
     if (artifact && this.controlPlane) {
       try {
-        artifactSignature = await this.controlPlane.signArtifact({
-          artifactHash: artifact.sha256, caseId: pending.caseId, taskId, createdAt: completedAt,
-        });
-        artifactSignatureState = 'SIGNED';
+        await this.controlPlane.registerArtifact({ caseId: pending.caseId, taskId, sha256: artifact.sha256,
+          bytes: artifact.bytes, ref: artifact.ref, storageProvider: 'filesystem', mediaType: 'text/plain' });
       } catch (error) {
-        artifactSignatureState = 'SIGNING_FAILED';
-        if (signatureRequired) status = 'FAILED';
-        console.error('[CommandCenter] Artifact signing failed safely:', error instanceof Error ? error.message : 'unknown error');
+        artifactSignatureState = 'REGISTRATION_FAILED';
+        status = 'FAILED';
+        console.error('[CommandCenter] Artifact registration failed safely:', error instanceof Error ? error.message : 'unknown error');
+      }
+      if (artifactSignatureState !== 'REGISTRATION_FAILED') {
+        try {
+          artifactSignature = await this.controlPlane.signArtifact({
+            artifactHash: artifact.sha256, caseId: pending.caseId, taskId, createdAt: completedAt,
+          });
+          artifactSignatureState = 'SIGNED';
+        } catch (error) {
+          artifactSignatureState = 'SIGNING_FAILED';
+          if (signatureRequired) status = 'FAILED';
+          console.error('[CommandCenter] Artifact signing failed safely:', error instanceof Error ? error.message : 'unknown error');
+        }
       }
     } else if (artifact && signatureRequired) {
       artifactSignatureState = 'SIGNING_FAILED';
@@ -302,9 +312,10 @@ export class CentralCommandOrchestrator {
         ...(msg.payload?.failure ? { failure: msg.payload.failure } : {}) },
       evidenceRefs,
       errors: status === 'COMPLETED' ? [] : [{
-        code: signatureRequired && artifactSignatureState === 'SIGNING_FAILED' ? 'ARTIFACT_SIGNATURE_REQUIRED' : workerStatus,
-        message: signatureRequired && artifactSignatureState === 'SIGNING_FAILED'
-          ? 'Control Plane could not sign the artifact; evidence was rejected.' : observation.summary,
+        code: artifactSignatureState === 'REGISTRATION_FAILED' ? 'ARTIFACT_REGISTRATION_REQUIRED' :
+          signatureRequired && artifactSignatureState === 'SIGNING_FAILED' ? 'ARTIFACT_SIGNATURE_REQUIRED' : workerStatus,
+        message: artifactSignatureState === 'REGISTRATION_FAILED' ? 'Control Plane could not register immutable artifact metadata; evidence was rejected.' :
+          signatureRequired && artifactSignatureState === 'SIGNING_FAILED' ? 'Control Plane could not sign the artifact; evidence was rejected.' : observation.summary,
       }],
       metrics: { durationMs: Date.now() - pending.startedAt, outputBytes: artifact?.bytes ?? 0 },
       completedAt,

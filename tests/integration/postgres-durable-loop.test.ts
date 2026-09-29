@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { PostgresRuntimeStore } from '../../packages/persistence/src/runtime-store.ts';
+import { PostgresArtifactRegistry } from '../../packages/persistence/src/artifact-store.ts';
 import type { GssResultContract, GssTaskContract, NextStepProposal, ObservationPack } from '../../packages/sdk/src/index.ts';
 
 const enabled = Boolean(process.env.DATABASE_URL);
@@ -46,6 +47,14 @@ describe.skipIf(!enabled)('PostgreSQL durable investigation loop', () => {
     const run = await store.ensureInvestigationRun(caseId, 'ci');
     expect((await store.createTask(task, 'ci', { runId: run.runId })).created).toBe(true);
     expect((await store.createTask(task, 'ci', { runId: run.runId })).created).toBe(false);
+    const artifacts = new PostgresArtifactRegistry(pool);
+    const artifactInput = { caseId, taskId: task.taskId, sha256: 'a'.repeat(64), bytes: 16,
+      ref: `artifact://evidence/${caseId}/${task.taskId}.txt`, storageProvider: 'filesystem' as const, mediaType: 'text/plain' };
+    expect((await artifacts.register(artifactInput)).created).toBe(true);
+    expect((await artifacts.register(artifactInput)).created).toBe(false);
+    await expect(artifacts.register({ ...artifactInput, ref: `${artifactInput.ref}.mutated` }))
+      .rejects.toThrow(/conflicts with immutable metadata/);
+    expect(await artifacts.exists(caseId, task.taskId, artifactInput.sha256)).toBe(true);
 
     const committed = await store.recordResult(result, observation, {
       runId: run.runId, source: 'cli', proposal,
