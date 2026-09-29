@@ -57,3 +57,40 @@ jobs:
       - run: npm ci
       - name: Audit production dependency vulnerabilities
         run: npm audit --omit=dev --audit-level=high
+
+  trivy-security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Trivy filesystem security evidence
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig,secret
+          severity: HIGH,CRITICAL
+          format: json
+          output: trivy-security.json
+          exit-code: '0'
+          skip-dirs: node_modules,apps/standalone/.next,apps/standalone/.next-production,packages/sdk/dist,packages/cli/dist
+      - name: Retain Trivy evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-security-${{ github.sha }}
+          path: trivy-security.json
+          retention-days: 30
+      - name: Enforce High and Critical security gate
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig,secret
+          severity: HIGH,CRITICAL
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          skip-setup-trivy: true
+          skip-dirs: node_modules,apps/standalone/.next,apps/standalone/.next-production,packages/sdk/dist,packages/cli/dist

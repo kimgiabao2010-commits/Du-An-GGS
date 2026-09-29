@@ -47,6 +47,7 @@ P0 establishes the first durable Control Plane boundary for GSS. The service is 
 - PostgreSQL now stores immutable content-addressed artifact metadata (`case → task → SHA-256 → storage ref`) and rejects conflicting replay metadata.
 - Control Plane signs only artifacts already registered against a real case/task; Command Center rejects evidence when durable metadata registration fails.
 - PostgreSQL load/recovery gate now drives concurrent cases, opens a fresh store instance, replays every result, and asserts exactly one frontier and decision per logical transition.
+- CI security gates now include pinned OSV-Scanner v2.6.0 reusable workflows and Trivy v0.36.0 filesystem scans for vulnerabilities, misconfiguration and secrets; Trivy JSON evidence is retained for 30 days and High/Critical findings fail the build.
 - Local `npm audit` could not reach the npm advisory endpoint; security result remains NOT RUN locally and is delegated to CI.
 - GitHub Actions now has a PostgreSQL service job that runs migrations before integration tests.
 - `git diff --check`: PASS.
