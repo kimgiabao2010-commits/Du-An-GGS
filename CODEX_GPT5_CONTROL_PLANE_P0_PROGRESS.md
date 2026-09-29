@@ -35,22 +35,26 @@ P0 establishes the first durable Control Plane boundary for GSS. The service is 
 - Sandbox boundary tests pass for default blocking and command allowlist enforcement; Docker execution remains an external hard gate.
 - Root integration runner now loads `.env`; `npm run test:integration` executes the PostgreSQL test when configured instead of silently skipping it. Current local result: 45/45 PASS.
 - CI now includes a production dependency security audit that fails on High/Critical findings.
-- SDK now provides Ed25519 detached artifact signing/verification with case/task/hash binding; private-key ownership remains a Control Plane responsibility.
+- SDK provides Ed25519 artifact signing/verification with case/task/hash/time binding.
+- Control Plane now owns the signing endpoint, validates task/case provenance before signing, and rejects signing when no private key is configured.
+- `Ctrl+Shift+B` strips the private signing key from Command Center, CLI, IDE, SIEM and UI child processes; only Control Plane receives it.
+- Local mode marks unsigned artifacts explicitly. Staging can set `GSS_REQUIRE_ARTIFACT_SIGNATURE=true` to fail startup when key configuration is missing and reject evidence when signing fails.
+- Readiness reporting now distinguishes optional local unsigned mode from the staging signature hard gate.
 - Local `npm audit` could not reach the npm advisory endpoint; security result remains NOT RUN locally and is delegated to CI.
 - GitHub Actions now has a PostgreSQL service job that runs migrations before integration tests.
 - `git diff --check`: PASS.
 
 ## BLOCKED
 
-- Live PostgreSQL transaction and restart proof has not run in this environment.
 - Chronicle staging credentials, dataset, and external UDM Search verification are not configured.
-- Docker/gVisor sandbox hard gate is not part of this P0 slice.
+- Docker/gVisor sandbox hard gate cannot run because Docker is unavailable in this environment.
+- Artifact signing is implemented but remains `NOT RUN` against a real staging key until a protected Ed25519 key is provisioned.
 - Standalone WebSocket intake still contains compatibility logic and must be migrated to call the Control Plane exclusively in the next slice.
 - The direct persistence compatibility path remains only for standalone mode without `CONTROL_PLANE_URL`; the Ctrl+Shift+B stack uses the authority path.
 
 ## Next implementation slice
 
-1. Move Command Center task creation/result writes behind an internal Control Plane client.
-2. Add contract tests for `200/201/403/404/409/422/503` semantics.
-3. Add PostgreSQL service-backed integration tests for idempotency, CAS, outbox, restart, and replay.
-4. Add server-side route authorization for `/standalone` and `/control`.
+1. Add contract tests for `200/201/403/404/409/422/503` semantics.
+2. Add server-side route authorization for `/standalone` and `/control`.
+3. Provision a protected staging signing key and distribute only its public verification key to workers.
+4. Run Chronicle staging and Docker sandbox hard gates when their external prerequisites are available.

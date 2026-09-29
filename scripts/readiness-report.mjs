@@ -39,6 +39,12 @@ check('PostgreSQL configuration', Boolean(process.env.DATABASE_URL?.trim()),
 check('PostgreSQL connectivity', postgresLive, postgresDetail);
 check('Control Plane configuration', true,
   process.env.CONTROL_PLANE_URL || 'Using Ctrl+Shift+B loopback default http://127.0.0.1:4100.');
+const signatureRequired = process.env.GSS_REQUIRE_ARTIFACT_SIGNATURE === 'true';
+const signingConfigured = Boolean(process.env.GSS_ARTIFACT_SIGNING_PRIVATE_KEY_BASE64?.trim() && process.env.GSS_ARTIFACT_SIGNING_KEY_ID?.trim());
+check('Artifact signing', signingConfigured,
+  signingConfigured ? 'Control Plane Ed25519 signing key and key ID are configured.' :
+    signatureRequired ? 'Artifact signatures are required but the Control Plane signing key is missing.' :
+      'Local mode permits unsigned artifacts; staging should require signatures.', signatureRequired);
 check('Chronicle staging configuration', chronicleReady,
   chronicleReady ? 'Project, location, instance and endpoint are configured.' : 'GSS_CHRONICLE_* coordinates are incomplete.');
 check('Docker runtime', commandAvailable('docker', ['version']),

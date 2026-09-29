@@ -1,9 +1,11 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createPrivateKey, randomUUID, type KeyObject } from 'node:crypto';
 import { Pool } from 'pg';
 import {
   RESULT_SCHEMA_VERSION,
+  signArtifact,
   sha256Canonical,
+  type ArtifactSignature,
   TASK_SCHEMA_VERSION,
   type CaseState,
   type ModelUsageRecord,
@@ -91,6 +93,8 @@ export class ControlPlaneServer {
   private readonly pool: Pool;
   private readonly runtime: PostgresRuntimeStore;
   private readonly investigations: PostgresInvestigationStore;
+  private readonly artifactSigningPrivateKey?: KeyObject;
+  private readonly artifactSigningKeyId?: string;
 
   public constructor(private readonly port = Number(process.env.CONTROL_PLANE_PORT ?? 4100)) {
     const connectionString = process.env.DATABASE_URL;
@@ -98,6 +102,14 @@ export class ControlPlaneServer {
     this.pool = new Pool({ connectionString, max: 10, ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: true } : undefined });
     this.runtime = new PostgresRuntimeStore(this.pool);
     this.investigations = new PostgresInvestigationStore(this.pool);
+    const encodedSigningKey = process.env.GSS_ARTIFACT_SIGNING_PRIVATE_KEY_BASE64?.trim();
+    this.artifactSigningPrivateKey = encodedSigningKey
+      ? createPrivateKey(Buffer.from(encodedSigningKey, 'base64').toString('utf8')) : undefined;
+    this.artifactSigningKeyId = process.env.GSS_ARTIFACT_SIGNING_KEY_ID?.trim() || undefined;
+    if (process.env.GSS_REQUIRE_ARTIFACT_SIGNATURE === 'true' &&
+      (!this.artifactSigningPrivateKey || !this.artifactSigningKeyId)) {
+      throw new Error('artifact signatures are required but the Control Plane signing key is not configured');
+    }
     this.server = createServer((request, response) => { void this.handle(request, response); });
   }
 
@@ -122,7 +134,10 @@ export class ControlPlaneServer {
       if (method === 'GET' && url.pathname === '/livez') return json(response, 200, { status: 'ok' });
       if (method === 'GET' && url.pathname === '/readyz') {
         await this.runtime.ready();
-        return json(response, 200, { status: 'ready', storage: 'postgresql' });
+        return json(response, 200, {
+          status: 'ready', storage: 'postgresql',
+          artifactSigning: this.artifactSigningPrivateKey && this.artifactSigningKeyId ? 'configured' : 'unsigned_local',
+        });
       }
       if (method === 'POST' && url.pathname === '/control/v1/cases') return this.createCase(request, response);
       const runMatch = url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/investigation-run$/);
@@ -141,6 +156,7 @@ export class ControlPlaneServer {
       if (method === 'POST' && releaseMatch) return this.releaseOutbox(decodeURIComponent(releaseMatch[1]), request, response);
       if (method === 'GET' && /^\/control\/v1\/tasks\/[^/]+$/.test(url.pathname)) return this.getTask(url.pathname.split('/').pop()!, response);
       if (method === 'POST' && url.pathname === '/control/v1/results') return this.recordResult(request, response);
+      if (method === 'POST' && url.pathname === '/control/v1/artifacts/sign') return this.signStoredArtifact(request, response);
       if (method === 'POST' && url.pathname === '/control/v1/model-usage') return this.recordModelUsage(request, response);
       const frontierMatch = url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/frontier$/);
       if (method === 'GET' && frontierMatch) return this.getFrontier(decodeURIComponent(frontierMatch[1]), response);
@@ -258,6 +274,29 @@ export class ControlPlaneServer {
     const loop = input.loop && typeof input.loop === 'object' ? input.loop as Parameters<PostgresRuntimeStore['recordResult']>[2] : undefined;
     const stored = await this.runtime.recordResult(result, observation, loop);
     return json(response, 200, { accepted: true, replay: !stored, ...(stored ? { loop: stored } : {}) });
+  }
+
+  private async signStoredArtifact(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    if (!this.artifactSigningPrivateKey || !this.artifactSigningKeyId) {
+      return json(response, 503, { error: 'artifact_signing_not_configured' });
+    }
+    const input = await body(request);
+    const artifactHash = requiredString(input.artifactHash, 'artifactHash').toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(artifactHash)) {
+      throw Object.assign(new Error('artifactHash must be SHA-256'), { statusCode: 422 });
+    }
+    const caseId = requiredString(input.caseId, 'caseId');
+    const taskId = requiredString(input.taskId, 'taskId');
+    const createdAt = requiredString(input.createdAt, 'createdAt');
+    if (Number.isNaN(Date.parse(createdAt))) {
+      throw Object.assign(new Error('createdAt must be an ISO timestamp'), { statusCode: 422 });
+    }
+    const task = await this.pool.query('SELECT 1 FROM runtime_tasks WHERE task_id=$1 AND case_id=$2', [taskId, caseId]);
+    if (!task.rows[0]) return json(response, 404, { error: 'task_not_found' });
+    const signature: ArtifactSignature = signArtifact({
+      artifactHash, caseId, taskId, keyId: this.artifactSigningKeyId, createdAt,
+    }, this.artifactSigningPrivateKey);
+    return json(response, 200, { signature });
   }
 
   private async recordModelUsage(request: IncomingMessage, response: ServerResponse): Promise<void> {

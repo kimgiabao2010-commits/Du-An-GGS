@@ -22,6 +22,9 @@ beforeAll(async () => {
     if (request.url?.endsWith('/outbox/publish')) return reply(response, { published: true });
     if (request.url?.endsWith('/outbox/release')) return reply(response, { released: true });
     if (request.url?.endsWith('/tasks')) return reply(response, { task: { taskId: 'TSK-test' }, replay: false });
+    if (request.url?.endsWith('/artifacts/sign')) return reply(response, { signature: {
+      algorithm: 'EdDSA', keyId: 'test-key', artifactHash: 'a'.repeat(64), compactJws: 'header.payload.signature',
+    } });
     return reply(response, {});
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()));
@@ -56,6 +59,9 @@ describe('Control Plane HTTP client', () => {
       model: 'gpt-5.6-sol', reasoningEffort: 'medium', routeReason: 'test', inputTokens: 10, outputTokens: 5,
       cachedTokens: 0, latencyMs: 2, retryCount: 0, estimatedCostMicros: 0, status: 'SUCCEEDED', createdAt: new Date().toISOString(),
     });
+    const signature = await client.signArtifact({ artifactHash: 'a'.repeat(64), caseId: task.caseId,
+      taskId: task.taskId, createdAt: new Date().toISOString() });
+    expect(signature.keyId).toBe('test-key');
     await client.claimPendingDispatches('owner');
     await client.markOutboxPublished('EVT-test', 'owner');
     await client.releaseOutbox('EVT-test', 'owner', 'offline', new Date().toISOString());
@@ -69,6 +75,7 @@ describe('Control Plane HTTP client', () => {
       'POST /control/v1/tasks/TSK-test/status',
       'POST /control/v1/results',
       'POST /control/v1/model-usage',
+      'POST /control/v1/artifacts/sign',
       'POST /control/v1/outbox/claim',
       'POST /control/v1/outbox/EVT-test/publish',
       'POST /control/v1/outbox/EVT-test/release',

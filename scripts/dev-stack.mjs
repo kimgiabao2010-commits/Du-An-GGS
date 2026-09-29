@@ -132,9 +132,11 @@ function stop(exitCode = 0) {
 }
 
 for (const [name, command, args, cwd] of services) {
+  const childEnv = { ...runtimeEnv, TS_NODE_TRANSPILE_ONLY: 'true', TS_NODE_PREFER_TS_EXTS: 'true' };
+  if (name !== 'Control Plane') delete childEnv.GSS_ARTIFACT_SIGNING_PRIVATE_KEY_BASE64;
   const child = spawn(command, args, {
     cwd,
-    env: { ...runtimeEnv, TS_NODE_TRANSPILE_ONLY: 'true', TS_NODE_PREFER_TS_EXTS: 'true' },
+    env: childEnv,
     stdio: 'inherit',
     windowsHide: true,
   });

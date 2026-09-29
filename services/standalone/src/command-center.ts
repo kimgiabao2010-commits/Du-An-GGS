@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   RESULT_SCHEMA_VERSION, TASK_SCHEMA_VERSION, TokenSigner, WsCommandServer, isIdeInvestigationRecord,
   isInvestigationEvidence, isInvestigationVerdict,
-  type CapabilityAction, type CaseState, type GssResultContract, type GssTaskContract,
+  type ArtifactSignature, type CapabilityAction, type CaseState, type GssResultContract, type GssTaskContract,
   type ModelUsageRecord, type NextStepProposal, type ObservationPack, type RuntimeStatusPayload, type TaskStatus,
 } from '@asq/sdk';
 import {
@@ -261,10 +261,29 @@ export class CentralCommandOrchestrator {
     const invalidIdeResult = pending.task.target === 'ide' && reportedWorkerStatus === 'SUCCESS' && !ideInvestigation;
     const invalidSiemResult = pending.task.target === 'siem' && reportedWorkerStatus === 'SUCCESS' && (!siemEvidence || !siemVerdict);
     const workerStatus = invalidIdeResult || invalidSiemResult ? 'INVALID_RESULT' : reportedWorkerStatus;
-    const status: GssResultContract['status'] = workerStatus === 'SUCCESS' ? 'COMPLETED' :
+    let status: GssResultContract['status'] = workerStatus === 'SUCCESS' ? 'COMPLETED' :
       workerStatus === 'BLOCKED' || workerStatus === 'DENIED' ? 'BLOCKED' : workerStatus === 'CANCELLED' ? 'CANCELLED' : 'FAILED';
     const output = String(msg.payload.output ?? msg.payload.content ?? '');
     const artifact = output ? await this.artifacts.storeEvidence(pending.caseId, taskId, output) : undefined;
+    const completedAt = new Date().toISOString();
+    const signatureRequired = process.env.GSS_REQUIRE_ARTIFACT_SIGNATURE === 'true';
+    let artifactSignature: ArtifactSignature | undefined;
+    let artifactSignatureState: 'SIGNED' | 'UNSIGNED_LOCAL' | 'SIGNING_FAILED' = 'UNSIGNED_LOCAL';
+    if (artifact && this.controlPlane) {
+      try {
+        artifactSignature = await this.controlPlane.signArtifact({
+          artifactHash: artifact.sha256, caseId: pending.caseId, taskId, createdAt: completedAt,
+        });
+        artifactSignatureState = 'SIGNED';
+      } catch (error) {
+        artifactSignatureState = 'SIGNING_FAILED';
+        if (signatureRequired) status = 'FAILED';
+        console.error('[CommandCenter] Artifact signing failed safely:', error instanceof Error ? error.message : 'unknown error');
+      }
+    } else if (artifact && signatureRequired) {
+      artifactSignatureState = 'SIGNING_FAILED';
+      status = 'FAILED';
+    }
     const adapterEvidenceId = siemEvidence?.evidenceId;
     const evidenceRefs = status === 'COMPLETED' ? [adapterEvidenceId, artifact ? `EVD-${artifact.sha256.slice(0, 16)}` : undefined]
       .filter((value): value is string => Boolean(value)) : [];
@@ -276,14 +295,19 @@ export class CentralCommandOrchestrator {
       executor: pending.task.target,
       status,
       result: { summary: observation.summary, action: pending.task.action, rawArtifactRef: artifact?.ref,
-        sha256: artifact?.sha256, ...(siemEvidence ? { evidence: siemEvidence } : {}),
+        sha256: artifact?.sha256, artifactSignatureState, ...(artifactSignature ? { artifactSignature } : {}),
+        ...(siemEvidence ? { evidence: siemEvidence } : {}),
         ...(ideInvestigation ? { investigation: ideInvestigation } : {}),
         ...(siemVerdict ? { verdict: siemVerdict } : {}),
         ...(msg.payload?.failure ? { failure: msg.payload.failure } : {}) },
       evidenceRefs,
-      errors: status === 'COMPLETED' ? [] : [{ code: workerStatus, message: observation.summary }],
+      errors: status === 'COMPLETED' ? [] : [{
+        code: signatureRequired && artifactSignatureState === 'SIGNING_FAILED' ? 'ARTIFACT_SIGNATURE_REQUIRED' : workerStatus,
+        message: signatureRequired && artifactSignatureState === 'SIGNING_FAILED'
+          ? 'Control Plane could not sign the artifact; evidence was rejected.' : observation.summary,
+      }],
       metrics: { durationMs: Date.now() - pending.startedAt, outputBytes: artifact?.bytes ?? 0 },
-      completedAt: new Date().toISOString(),
+      completedAt,
     };
     const proposal = status === 'COMPLETED' ? nextStepProposal(pending.task, result.result) : undefined;
     const loop = status === 'COMPLETED' && pending.runId && proposal ? {

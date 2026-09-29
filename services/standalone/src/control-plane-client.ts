@@ -1,4 +1,4 @@
-import type { CaseState, GssResultContract, GssTaskContract, InvestigationRun, ModelUsageRecord, NextStepProposal, ObservationPack } from '@asq/sdk';
+import type { ArtifactSignature, CaseState, GssResultContract, GssTaskContract, InvestigationRun, ModelUsageRecord, NextStepProposal, ObservationPack } from '@asq/sdk';
 import type { ClaimedDispatch } from '@asq/persistence';
 import type { TaskStatus } from '@asq/sdk';
 
@@ -18,6 +18,7 @@ export interface ControlPlaneTaskClient {
   markOutboxPublished(eventId: string, claimOwner?: string): Promise<boolean>;
   releaseOutbox(eventId: string, claimOwner: string, error: string, retryAt: string): Promise<boolean>;
   recordModelUsage(record: ModelUsageRecord): Promise<{ created: boolean }>;
+  signArtifact(input: { artifactHash: string; caseId: string; taskId: string; createdAt: string }): Promise<ArtifactSignature>;
   createTask(task: GssTaskContract, requestedBy: string, linkage?: TaskLinkage): Promise<{ created: boolean; task?: GssTaskContract }>;
   recordResult(result: GssResultContract, observation?: ObservationPack, loop?: {
     runId: string;
@@ -101,6 +102,14 @@ export class HttpControlPlaneClient implements ControlPlaneTaskClient {
       method: 'POST', headers: { 'x-gss-actor': 'command-center' }, body: JSON.stringify(record),
     }, [200, 201]);
     return { created: payload.created === true };
+  }
+
+  public async signArtifact(input: { artifactHash: string; caseId: string; taskId: string; createdAt: string }): Promise<ArtifactSignature> {
+    const payload = await this.request('/control/v1/artifacts/sign', {
+      method: 'POST', headers: { 'x-gss-actor': 'command-center' }, body: JSON.stringify(input),
+    }, [200]);
+    if (!payload.signature || typeof payload.signature !== 'object') throw new Error('Control Plane returned no artifact signature');
+    return payload.signature as unknown as ArtifactSignature;
   }
 
   public async createTask(task: GssTaskContract, requestedBy: string, linkage: TaskLinkage = {}) {
