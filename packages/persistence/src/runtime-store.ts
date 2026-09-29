@@ -25,6 +25,8 @@ export interface RuntimeStore {
   transitionCase(caseId: string, state: CaseState): Promise<void>;
   appendMessage(caseId: string, role: MessageRole, content: string, metadata?: Record<string, unknown>): Promise<string>;
   ensureInvestigationRun?(caseId: string, requestedBy: string): Promise<InvestigationRun>;
+  getInvestigationRun?(runId: string): Promise<InvestigationRun | null>;
+  getEvidenceFrontier?(runId: string, version?: number): Promise<import('@asq/sdk').EvidenceFrontier | null>;
   createTask(task: GssTaskContract, requestedBy: string, linkage?: {
     runId?: string;
     parentTaskId?: string;
@@ -70,6 +72,14 @@ export class PostgresRuntimeStore implements RuntimeStore {
 
   public async ensureInvestigationRun(caseId: string, requestedBy: string): Promise<InvestigationRun> {
     return this.loopStore.ensureRun({ caseId, requestedBy });
+  }
+
+  public async getInvestigationRun(runId: string): Promise<InvestigationRun | null> {
+    return this.loopStore.getRun(runId);
+  }
+
+  public async getEvidenceFrontier(runId: string, version?: number) {
+    return this.loopStore.getFrontier(runId, version);
   }
 
   public async transitionCase(caseId: string, state: CaseState): Promise<void> {

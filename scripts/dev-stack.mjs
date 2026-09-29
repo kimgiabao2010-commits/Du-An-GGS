@@ -44,6 +44,7 @@ const nextBin = resolve(root, 'node_modules/next/dist/bin/next');
 const turboBin = resolve(root, 'node_modules/turbo/bin/turbo');
 const webRoot = resolve(root, 'apps/standalone');
 const services = [
+  ['Control Plane', process.execPath, [...tsRuntime, resolve(root, 'services/control-plane/src/main.ts')], root],
   ['Command Center', process.execPath, [...tsRuntime, resolve(root, 'services/standalone/src/main.ts')], root],
   ['CLI worker', process.execPath, [...tsRuntime, resolve(root, 'services/cli-worker/src/main.ts')], root],
   ['IDE agent', process.execPath, [...tsRuntime, resolve(root, 'services/ide-reasoning/src/main.ts')], root],
@@ -61,7 +62,7 @@ function portInUse(port) {
 }
 
 const occupied = [];
-for (const port of [3000, 4000]) if (await portInUse(port)) occupied.push(port);
+for (const port of [3000, 4000, Number(process.env.CONTROL_PLANE_PORT || 4100)]) if (await portInUse(port)) occupied.push(port);
 if (occupied.length && !dryRun) {
   console.error(`Cannot start: port ${occupied.join(', ')} is already in use.`);
   console.error('Stop the previous GSS/Next terminal with Ctrl+C, then press Ctrl+Shift+B again.');
@@ -76,7 +77,7 @@ if (dryRun) {
   console.log(`OK: IDE read-only root configured (${runtimeEnv.GSS_IDE_REPOSITORY_ROOTS === root ? 'repository root' : 'custom allowlist'}).`);
   console.log(process.env.GSS_CHRONICLE_PROJECT && process.env.GSS_CHRONICLE_LOCATION && process.env.GSS_CHRONICLE_INSTANCE && process.env.GSS_CHRONICLE_ENDPOINT
     ? 'OK: Chronicle read-only worker configured.' : 'WARNING: Chronicle worker will remain disabled until its four GSS_CHRONICLE_* settings are configured.');
-  console.log(occupied.length ? `WARNING: occupied ports: ${occupied.join(', ')}.` : 'OK: ports 3000 and 4000 are available.');
+  console.log(occupied.length ? `WARNING: occupied ports: ${occupied.join(', ')}.` : 'OK: ports 3000, 4000 and 4100 are available.');
   console.log(databaseUrl ? 'OK: PostgreSQL persistence configured; migrations will run before startup.' :
     'ERROR: DATABASE_URL is required because PostgreSQL is the durable source of truth.');
   process.exit(databaseUrl ? 0 : 1);

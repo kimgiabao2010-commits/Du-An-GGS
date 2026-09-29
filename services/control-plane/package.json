@@ -1,0 +1,23 @@
+{
+  "name": "@asq/control-plane",
+  "version": "4.0.0",
+  "description": "GSS durable Control Plane authority",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "types": "dist/main.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@asq/persistence": "*",
+    "@asq/sdk": "*",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.15.5",
+    "typescript": "^5.5.0"
+  }
+}
