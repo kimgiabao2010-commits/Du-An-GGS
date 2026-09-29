@@ -6,6 +6,7 @@ import {
   sha256Canonical,
   TASK_SCHEMA_VERSION,
   type CaseState,
+  type TaskStatus,
   type GssResultContract,
   type GssTaskContract,
   type CapabilityAction,
@@ -130,6 +131,13 @@ export class ControlPlaneServer {
       const stateMatch = url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/state$/);
       if (method === 'POST' && stateMatch) return this.transitionCase(decodeURIComponent(stateMatch[1]), request, response);
       if (method === 'POST' && url.pathname === '/control/v1/tasks') return this.createTask(request, response);
+      const taskStatusMatch = url.pathname.match(/^\/control\/v1\/tasks\/([^/]+)\/status$/);
+      if (method === 'POST' && taskStatusMatch) return this.updateTaskStatus(decodeURIComponent(taskStatusMatch[1]), request, response);
+      if (method === 'POST' && url.pathname === '/control/v1/outbox/claim') return this.claimOutbox(request, response);
+      const publishMatch = url.pathname.match(/^\/control\/v1\/outbox\/([^/]+)\/publish$/);
+      if (method === 'POST' && publishMatch) return this.publishOutbox(decodeURIComponent(publishMatch[1]), request, response);
+      const releaseMatch = url.pathname.match(/^\/control\/v1\/outbox\/([^/]+)\/release$/);
+      if (method === 'POST' && releaseMatch) return this.releaseOutbox(decodeURIComponent(releaseMatch[1]), request, response);
       if (method === 'GET' && /^\/control\/v1\/tasks\/[^/]+$/.test(url.pathname)) return this.getTask(url.pathname.split('/').pop()!, response);
       if (method === 'POST' && url.pathname === '/control/v1/results') return this.recordResult(request, response);
       const frontierMatch = url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/frontier$/);
@@ -174,6 +182,40 @@ export class ControlPlaneServer {
     const caseId = requiredString(input.caseId, 'caseId');
     await this.runtime.ensureCase(caseId, actor(request));
     return json(response, 201, { caseId, created: true });
+  }
+
+  private async updateTaskStatus(taskId: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const input = await body(request);
+    const status = requiredString(input.status, 'status') as TaskStatus;
+    const allowed = new Set<TaskStatus>(['QUEUED', 'DISPATCHED', 'RUNNING', 'COMPLETED', 'BLOCKED', 'FAILED', 'CANCELLED']);
+    if (!allowed.has(status)) throw Object.assign(new Error('task status is invalid'), { statusCode: 422 });
+    await this.runtime.updateTask(taskId, status, typeof input.assignedWorker === 'string' ? input.assignedWorker : undefined);
+    return json(response, 200, { taskId, status });
+  }
+
+  private async claimOutbox(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const input = await body(request);
+    const owner = requiredString(input.claimOwner, 'claimOwner');
+    const limit = typeof input.limit === 'number' ? input.limit : 25;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw Object.assign(new Error('limit is invalid'), { statusCode: 422 });
+    const dispatches = await this.runtime.claimPendingDispatches(owner, limit);
+    return json(response, 200, { dispatches });
+  }
+
+  private async publishOutbox(eventId: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const input = await body(request);
+    const claimOwner = typeof input.claimOwner === 'string' ? input.claimOwner : undefined;
+    const published = await this.runtime.markOutboxPublished(eventId, claimOwner);
+    return json(response, 200, { published });
+  }
+
+  private async releaseOutbox(eventId: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const input = await body(request);
+    const claimOwner = requiredString(input.claimOwner, 'claimOwner');
+    const error = requiredString(input.error, 'error');
+    const retryAt = requiredString(input.retryAt, 'retryAt');
+    const released = await this.runtime.releaseOutbox(eventId, claimOwner, error, retryAt);
+    return json(response, 200, { released });
   }
 
   private async ensureRun(caseId: string, request: IncomingMessage, response: ServerResponse): Promise<void> {

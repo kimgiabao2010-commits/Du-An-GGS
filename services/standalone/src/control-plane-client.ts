@@ -1,4 +1,6 @@
 import type { CaseState, GssResultContract, GssTaskContract, InvestigationRun, NextStepProposal, ObservationPack } from '@asq/sdk';
+import type { ClaimedDispatch } from '@asq/persistence';
+import type { TaskStatus } from '@asq/sdk';
 
 export interface TaskLinkage {
   runId?: string;
@@ -11,6 +13,10 @@ export interface ControlPlaneTaskClient {
   ensureInvestigationRun(caseId: string, requestedBy: string): Promise<InvestigationRun>;
   appendMessage(caseId: string, role: 'USER' | 'ASSISTANT' | 'SYSTEM' | 'WORKER', content: string, metadata?: Record<string, unknown>): Promise<string>;
   transitionCase(caseId: string, state: CaseState): Promise<void>;
+  updateTask(taskId: string, status: TaskStatus, assignedWorker?: string): Promise<void>;
+  claimPendingDispatches(claimOwner: string, limit?: number): Promise<ClaimedDispatch[]>;
+  markOutboxPublished(eventId: string, claimOwner?: string): Promise<boolean>;
+  releaseOutbox(eventId: string, claimOwner: string, error: string, retryAt: string): Promise<boolean>;
   createTask(task: GssTaskContract, requestedBy: string, linkage?: TaskLinkage): Promise<{ created: boolean; task?: GssTaskContract }>;
   recordResult(result: GssResultContract, observation?: ObservationPack, loop?: {
     runId: string;
@@ -60,6 +66,33 @@ export class HttpControlPlaneClient implements ControlPlaneTaskClient {
     await this.request(`/control/v1/cases/${encodeURIComponent(caseId)}/state`, {
       method: 'POST', headers: { 'x-gss-actor': 'command-center' }, body: JSON.stringify({ state }),
     }, [200]);
+  }
+
+  public async updateTask(taskId: string, status: TaskStatus, assignedWorker?: string): Promise<void> {
+    await this.request(`/control/v1/tasks/${encodeURIComponent(taskId)}/status`, {
+      method: 'POST', headers: { 'x-gss-actor': 'command-center' }, body: JSON.stringify({ status, assignedWorker }),
+    }, [200]);
+  }
+
+  public async claimPendingDispatches(claimOwner: string, limit = 25): Promise<ClaimedDispatch[]> {
+    const payload = await this.request('/control/v1/outbox/claim', {
+      method: 'POST', headers: { 'x-gss-actor': claimOwner }, body: JSON.stringify({ claimOwner, limit }),
+    }, [200]);
+    return Array.isArray(payload.dispatches) ? payload.dispatches as ClaimedDispatch[] : [];
+  }
+
+  public async markOutboxPublished(eventId: string, claimOwner?: string): Promise<boolean> {
+    const payload = await this.request(`/control/v1/outbox/${encodeURIComponent(eventId)}/publish`, {
+      method: 'POST', headers: { 'x-gss-actor': claimOwner ?? 'command-center' }, body: JSON.stringify({ claimOwner }),
+    }, [200]);
+    return payload.published === true;
+  }
+
+  public async releaseOutbox(eventId: string, claimOwner: string, error: string, retryAt: string): Promise<boolean> {
+    const payload = await this.request(`/control/v1/outbox/${encodeURIComponent(eventId)}/release`, {
+      method: 'POST', headers: { 'x-gss-actor': claimOwner }, body: JSON.stringify({ claimOwner, error, retryAt }),
+    }, [200]);
+    return payload.released === true;
   }
 
   public async createTask(task: GssTaskContract, requestedBy: string, linkage: TaskLinkage = {}) {

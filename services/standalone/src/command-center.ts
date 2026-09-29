@@ -126,7 +126,7 @@ export class CentralCommandOrchestrator {
   public async ready(): Promise<number> {
     if (this.store) await this.store.ready();
     const port = await this.server.ready();
-    if (this.store?.claimPendingDispatches) {
+    if (this.controlPlane || this.store?.claimPendingDispatches) {
       this.outboxTimer = setInterval(() => { void this.drainOutbox(); }, 1_000);
       this.outboxTimer.unref?.();
     }
@@ -150,7 +150,8 @@ export class CentralCommandOrchestrator {
       this.server.broadcast({ source: 'STANDALONE', target: 'BROADCAST', type: 'COMMAND', payload: { action: 'system_halt' } });
       for (const pending of this.pending.values()) {
         clearTimeout(pending.timer);
-        await this.store?.updateTask(pending.task.taskId, 'CANCELLED', pending.agentId);
+        if (this.controlPlane) await this.controlPlane.updateTask(pending.task.taskId, 'CANCELLED', pending.agentId);
+        else await this.store?.updateTask(pending.task.taskId, 'CANCELLED', pending.agentId);
       }
       this.pending.clear();
       this.status('HALTED', 'Workers were asked to stop and new tasks are blocked.');
@@ -296,16 +297,18 @@ export class CentralCommandOrchestrator {
     this.status(workerStatus, status === 'COMPLETED' ? observation.summary : `Worker did not produce verified evidence: ${observation.summary}`,
       pending.caseId, { caseId: pending.caseId, taskId, result, observation, caseState: nextCaseState });
     if (durableLoop?.decision.kind === 'DISPATCH') {
-      if (this.store?.claimPendingDispatches) await this.drainOutbox();
+      if (this.controlPlane || this.store?.claimPendingDispatches) await this.drainOutbox();
       else await this.dispatchDecision(durableLoop, pending.task.taskId);
     }
   }
 
   private async drainOutbox(): Promise<void> {
-    if (!this.store?.claimPendingDispatches || this.drainingOutbox || this.halted) return;
+    if ((!this.controlPlane && !this.store?.claimPendingDispatches) || this.drainingOutbox || this.halted) return;
     this.drainingOutbox = true;
     try {
-      const claims = await this.store.claimPendingDispatches(this.outboxClaimOwner, 25);
+      const claims = this.controlPlane
+        ? await this.controlPlane.claimPendingDispatches(this.outboxClaimOwner, 25)
+        : await this.store!.claimPendingDispatches!(this.outboxClaimOwner, 25);
       for (const claim of claims) await this.dispatchDecision(claim.loop, claim.parentTaskId, claim.claimOwner);
     } catch (error) {
       console.error('[CommandCenter] Outbox recovery failed safely:', error instanceof Error ? error.message : 'unknown error');
@@ -344,9 +347,15 @@ export class CentralCommandOrchestrator {
     const agentId = action.target === 'cli' ? 'cli-worker-agent' : action.target === 'ide' ? 'ide-worker-agent' : 'siem-worker-agent';
     const instruction = capability.instruction ?? String(action.parameters.question ?? action.parameters.query ?? action.action);
     const delivered = await this.dispatchPreparedTask(task, agentId, instruction, loop.run.runId);
-    if (delivered) await this.store?.markOutboxPublished?.(loop.outbox.eventId, claimOwner);
-    else if (claimOwner) await this.store?.releaseOutbox?.(loop.outbox.eventId, claimOwner,
-      `${agentId} was offline`, new Date(Date.now() + 5_000).toISOString());
+    if (delivered) {
+      if (this.controlPlane) await this.controlPlane.markOutboxPublished(loop.outbox.eventId, claimOwner);
+      else await this.store?.markOutboxPublished?.(loop.outbox.eventId, claimOwner);
+    } else if (claimOwner) {
+      if (this.controlPlane) await this.controlPlane.releaseOutbox(loop.outbox.eventId, claimOwner,
+        `${agentId} was offline`, new Date(Date.now() + 5_000).toISOString());
+      else await this.store?.releaseOutbox?.(loop.outbox.eventId, claimOwner,
+        `${agentId} was offline`, new Date(Date.now() + 5_000).toISOString());
+    }
   }
 
   private async dispatchPreparedTask(task: GssTaskContract, agentId: string, instruction: string, runId?: string): Promise<boolean> {
@@ -371,12 +380,14 @@ export class CentralCommandOrchestrator {
     if (!delivered) {
       clearTimeout(timer);
       this.pending.delete(task.taskId);
-      await this.store?.updateTask(task.taskId, 'BLOCKED', agentId);
+      if (this.controlPlane) await this.controlPlane.updateTask(task.taskId, 'BLOCKED', agentId);
+      else await this.store?.updateTask(task.taskId, 'BLOCKED', agentId);
       this.status('OFFLINE', `${agentId} is not connected. Nothing was executed.`, task.caseId,
         { caseId: task.caseId, taskId: task.taskId, task, caseState: 'COLLECTING_EVIDENCE' });
       return false;
     }
-    await this.store?.updateTask(task.taskId, 'DISPATCHED', agentId);
+    if (this.controlPlane) await this.controlPlane.updateTask(task.taskId, 'DISPATCHED', agentId);
+    else await this.store?.updateTask(task.taskId, 'DISPATCHED', agentId);
     this.status('DISPATCHED', `Task ${task.taskId} was routed to ${agentId}.`, task.caseId,
       { caseId: task.caseId, taskId: task.taskId, task, caseState: 'COLLECTING_EVIDENCE' });
     return true;
@@ -386,7 +397,8 @@ export class CentralCommandOrchestrator {
     const pending = this.pending.get(taskId);
     if (!pending) return;
     this.pending.delete(taskId);
-    await this.store?.updateTask(taskId, 'FAILED', pending.agentId);
+    if (this.controlPlane) await this.controlPlane.updateTask(taskId, 'FAILED', pending.agentId);
+    else await this.store?.updateTask(taskId, 'FAILED', pending.agentId);
     this.status('TIMEOUT', 'Worker did not return evidence before the bounded timeout.', pending.caseId,
       { caseId: pending.caseId, taskId, caseState: 'INVESTIGATING' });
   }
