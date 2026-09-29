@@ -1,6 +1,8 @@
 export * from './types/index.js';
 export { TokenSigner } from './security/token-signer.js';
 export type { TokenPayload } from './security/token-signer.js';
+export { generateArtifactSigningKeyPair, signArtifact, verifyArtifactSignature } from './security/artifact-signing.js';
+export type { ArtifactSignature, ArtifactSignaturePayload } from './security/artifact-signing.js';
 export { EventBus } from './transport/event-bus.js';
 
 // ASQ Client Exports
