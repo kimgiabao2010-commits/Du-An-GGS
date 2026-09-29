@@ -1,4 +1,4 @@
-import type { CaseState, GssResultContract, GssTaskContract, InvestigationRun, NextStepProposal, ObservationPack } from '@asq/sdk';
+import type { CaseState, GssResultContract, GssTaskContract, InvestigationRun, ModelUsageRecord, NextStepProposal, ObservationPack } from '@asq/sdk';
 import type { ClaimedDispatch } from '@asq/persistence';
 import type { TaskStatus } from '@asq/sdk';
 
@@ -17,6 +17,7 @@ export interface ControlPlaneTaskClient {
   claimPendingDispatches(claimOwner: string, limit?: number): Promise<ClaimedDispatch[]>;
   markOutboxPublished(eventId: string, claimOwner?: string): Promise<boolean>;
   releaseOutbox(eventId: string, claimOwner: string, error: string, retryAt: string): Promise<boolean>;
+  recordModelUsage(record: ModelUsageRecord): Promise<{ created: boolean }>;
   createTask(task: GssTaskContract, requestedBy: string, linkage?: TaskLinkage): Promise<{ created: boolean; task?: GssTaskContract }>;
   recordResult(result: GssResultContract, observation?: ObservationPack, loop?: {
     runId: string;
@@ -93,6 +94,13 @@ export class HttpControlPlaneClient implements ControlPlaneTaskClient {
       method: 'POST', headers: { 'x-gss-actor': claimOwner }, body: JSON.stringify({ claimOwner, error, retryAt }),
     }, [200]);
     return payload.released === true;
+  }
+
+  public async recordModelUsage(record: ModelUsageRecord): Promise<{ created: boolean }> {
+    const payload = await this.request('/control/v1/model-usage', {
+      method: 'POST', headers: { 'x-gss-actor': 'command-center' }, body: JSON.stringify(record),
+    }, [200, 201]);
+    return { created: payload.created === true };
   }
 
   public async createTask(task: GssTaskContract, requestedBy: string, linkage: TaskLinkage = {}) {

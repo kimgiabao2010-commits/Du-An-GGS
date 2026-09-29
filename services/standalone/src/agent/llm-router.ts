@@ -7,6 +7,18 @@ export interface RouterDecision {
   instruction: string;
   action?: CapabilityAction;
   parameters?: Record<string, unknown>;
+  modelUsage?: {
+    model: string;
+    reasoningEffort: string;
+    routeReason: string;
+    inputTokens: number;
+    outputTokens: number;
+    cachedTokens: number;
+    latencyMs: number;
+    retryCount: number;
+    estimatedCostMicros: number;
+    status: 'SUCCEEDED' | 'FAILED';
+  };
 }
 
 const deterministicIntents: Array<{ patterns: RegExp[]; action: CapabilityAction; instruction: string }> = [
@@ -56,6 +68,7 @@ export class LlmRouter {
       instruction: 'LLM_UNAVAILABLE: Configure OPENAI_API_KEY or GROQ_API_KEY. No worker task was dispatched.',
     };
 
+    const startedAt = Date.now();
     try {
       const context = this.contextBudgeter.prepare(prompt);
       console.info(`[LlmRouter] Context ${context.inputTokenEstimate} -> ${context.outputTokenEstimate} tokens; ` +
@@ -133,6 +146,16 @@ CLI actions are read-only. IDE actions are analysis-only. High-risk actions are 
       });
 
       const message = response.choices[0]?.message;
+      const inputTokens = response.usage?.prompt_tokens ?? context.inputTokenEstimate;
+      const outputTokens = response.usage?.completion_tokens ?? 0;
+      const cachedTokens = response.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+      const inputRate = Number(process.env.ASQ_MODEL_INPUT_COST_MICROS_PER_1K ?? 0);
+      const outputRate = Number(process.env.ASQ_MODEL_OUTPUT_COST_MICROS_PER_1K ?? 0);
+      const modelUsage = {
+        model: this.modelName, reasoningEffort: 'medium', routeReason: 'llm_intent_routing',
+        inputTokens, outputTokens, cachedTokens, latencyMs: Date.now() - startedAt, retryCount: 0,
+        estimatedCostMicros: Math.ceil((inputTokens / 1000) * inputRate + (outputTokens / 1000) * outputRate), status: 'SUCCEEDED' as const,
+      };
       const toolCall = message?.tool_calls?.[0];
       if (toolCall?.type === 'function') {
         const args = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
@@ -140,24 +163,29 @@ CLI actions are read-only. IDE actions are analysis-only. High-risk actions are 
         if (toolCall.function.name === 'delegate_cli') {
           const intent = deterministicIntents.find(item => item.action === action);
           if (!intent) throw new Error('Unsupported CLI capability');
-          return { agent: 'cli', action, instruction: intent.instruction, parameters: {} };
+          return { agent: 'cli', action, instruction: intent.instruction, parameters: {}, modelUsage };
         }
         if (toolCall.function.name === 'delegate_ide' && ['analyze_code', 'search_code'].includes(action)) {
           const question = typeof args.question === 'string' ? args.question.trim() : '';
           if (!question) throw new Error('Missing IDE analysis question');
-          return { agent: 'ide', action, instruction: question, parameters: { question,
+          return { agent: 'ide', action, instruction: question, modelUsage, parameters: { question,
             ...(typeof args.query === 'string' ? { query: args.query.trim() } : {}),
             ...(typeof args.path === 'string' ? { path: args.path.trim() } : {}) } };
         }
         if (toolCall.function.name === 'delegate_siem') {
-          return { agent: 'siem', action: 'search_siem', instruction: 'Search Chronicle for a validated indicator',
+          return { agent: 'siem', action: 'search_siem', instruction: 'Search Chronicle for a validated indicator', modelUsage,
             parameters: { indicatorType: args.indicatorType, indicatorValue: args.indicatorValue,
               startTime: args.startTime, endTime: args.endTime, limit: args.limit ?? 100 } };
         }
       }
-      return { agent: 'chat', instruction: message?.content?.trim() || 'I need more context before I can continue safely.' };
+      return { agent: 'chat', instruction: message?.content?.trim() || 'I need more context before I can continue safely.', modelUsage };
     } catch {
-      return { agent: 'system', instruction: 'LLM_UNAVAILABLE: Routing failed safely. No worker task was dispatched.' };
+      const inputRate = Number(process.env.ASQ_MODEL_INPUT_COST_MICROS_PER_1K ?? 0);
+      return { agent: 'system', instruction: 'LLM_UNAVAILABLE: Routing failed safely. No worker task was dispatched.', modelUsage: {
+        model: this.modelName, reasoningEffort: 'medium', routeReason: 'llm_intent_routing', inputTokens: 0, outputTokens: 0,
+        cachedTokens: 0, latencyMs: Date.now() - startedAt, retryCount: 0,
+        estimatedCostMicros: inputRate > 0 ? Math.ceil(inputRate) : 0, status: 'FAILED',
+      } };
     }
   }
 }

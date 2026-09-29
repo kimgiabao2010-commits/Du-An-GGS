@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
 import type {
-  CaseState, GssResultContract, GssTaskContract, InvestigationRun, NextStepProposal, ObservationPack, TaskStatus,
+  CaseState, GssResultContract, GssTaskContract, InvestigationRun, ModelUsageRecord, NextStepProposal, ObservationPack, TaskStatus,
 } from '@asq/sdk';
 import { actionFingerprint, sha256Canonical } from '@asq/sdk';
 import {
@@ -27,6 +27,7 @@ export interface RuntimeStore {
   ensureInvestigationRun?(caseId: string, requestedBy: string): Promise<InvestigationRun>;
   getInvestigationRun?(runId: string): Promise<InvestigationRun | null>;
   getEvidenceFrontier?(runId: string, version?: number): Promise<import('@asq/sdk').EvidenceFrontier | null>;
+  recordModelUsage?(record: ModelUsageRecord): Promise<{ created: boolean }>;
   createTask(task: GssTaskContract, requestedBy: string, linkage?: {
     runId?: string;
     parentTaskId?: string;
@@ -80,6 +81,10 @@ export class PostgresRuntimeStore implements RuntimeStore {
 
   public async getEvidenceFrontier(runId: string, version?: number) {
     return this.loopStore.getFrontier(runId, version);
+  }
+
+  public async recordModelUsage(record: ModelUsageRecord): Promise<{ created: boolean }> {
+    return this.loopStore.recordModelUsage(record);
   }
 
   public async transitionCase(caseId: string, state: CaseState): Promise<void> {

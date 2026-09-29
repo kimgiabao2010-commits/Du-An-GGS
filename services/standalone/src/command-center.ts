@@ -3,7 +3,7 @@ import {
   RESULT_SCHEMA_VERSION, TASK_SCHEMA_VERSION, TokenSigner, WsCommandServer, isIdeInvestigationRecord,
   isInvestigationEvidence, isInvestigationVerdict,
   type CapabilityAction, type CaseState, type GssResultContract, type GssTaskContract,
-  type NextStepProposal, type ObservationPack, type RuntimeStatusPayload, type TaskStatus,
+  type ModelUsageRecord, type NextStepProposal, type ObservationPack, type RuntimeStatusPayload, type TaskStatus,
 } from '@asq/sdk';
 import {
   FilesystemArtifactStore, PostgresRuntimeStore, type CommitObservationResult, type RuntimeStore,
@@ -186,6 +186,14 @@ export class CentralCommandOrchestrator {
     try { decision = await this.router.routePrompt(prompt); }
     finally { this.planning--; }
     if (this.halted) return;
+
+    const modelUsage = 'modelUsage' in decision ? decision.modelUsage : undefined;
+    if (modelUsage) {
+      const record: ModelUsageRecord = { schemaVersion: 'gss.model-usage.v1', usageId: randomUUID(), caseId,
+        traceId: msg.message_id, ...modelUsage, createdAt: new Date().toISOString() };
+      if (this.controlPlane) await this.controlPlane.recordModelUsage(record);
+      else await this.store?.recordModelUsage?.(record);
+    }
 
     if (!['cli', 'ide', 'siem'].includes(decision.agent)) {
       const state = decision.agent === 'chat' ? 'CHAT' : 'ERROR';

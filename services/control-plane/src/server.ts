@@ -6,6 +6,7 @@ import {
   sha256Canonical,
   TASK_SCHEMA_VERSION,
   type CaseState,
+  type ModelUsageRecord,
   type TaskStatus,
   type GssResultContract,
   type GssTaskContract,
@@ -140,6 +141,7 @@ export class ControlPlaneServer {
       if (method === 'POST' && releaseMatch) return this.releaseOutbox(decodeURIComponent(releaseMatch[1]), request, response);
       if (method === 'GET' && /^\/control\/v1\/tasks\/[^/]+$/.test(url.pathname)) return this.getTask(url.pathname.split('/').pop()!, response);
       if (method === 'POST' && url.pathname === '/control/v1/results') return this.recordResult(request, response);
+      if (method === 'POST' && url.pathname === '/control/v1/model-usage') return this.recordModelUsage(request, response);
       const frontierMatch = url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/frontier$/);
       if (method === 'GET' && frontierMatch) return this.getFrontier(decodeURIComponent(frontierMatch[1]), response);
       if (method === 'POST' && url.pathname === '/control/v1/approvals') return this.createApproval(request, response);
@@ -256,6 +258,15 @@ export class ControlPlaneServer {
     const loop = input.loop && typeof input.loop === 'object' ? input.loop as Parameters<PostgresRuntimeStore['recordResult']>[2] : undefined;
     const stored = await this.runtime.recordResult(result, observation, loop);
     return json(response, 200, { accepted: true, replay: !stored, ...(stored ? { loop: stored } : {}) });
+  }
+
+  private async recordModelUsage(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const input = await body(request) as unknown as ModelUsageRecord;
+    if (input.schemaVersion !== 'gss.model-usage.v1' || typeof input.usageId !== 'string' || typeof input.caseId !== 'string' || typeof input.model !== 'string') {
+      throw Object.assign(new Error('valid gss.model-usage.v1 record is required'), { statusCode: 422 });
+    }
+    const result = await this.runtime.recordModelUsage(input);
+    return json(response, result.created ? 201 : 200, result);
   }
 
   private async getFrontier(caseId: string, response: ServerResponse): Promise<void> {

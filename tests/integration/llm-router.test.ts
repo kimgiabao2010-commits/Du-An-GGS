@@ -27,8 +27,9 @@ describe('LLM adapter contract (provider mocked, no paid requests)', () => {
     create.mockResolvedValue({ choices: [{ message: { tool_calls: [{ type: 'function', function: {
       name: 'delegate_cli', arguments: JSON.stringify({ action: 'inspect_hostname' })
     } }] } }] });
-    expect(await new LlmRouter().routePrompt('collect host evidence')).toEqual({
-      agent: 'cli', action: 'inspect_hostname', instruction: 'hostname', parameters: {}
+    expect(await new LlmRouter().routePrompt('collect host evidence')).toMatchObject({
+      agent: 'cli', action: 'inspect_hostname', instruction: 'hostname', parameters: {},
+      modelUsage: { status: 'SUCCEEDED', reasoningEffort: 'medium', routeReason: 'llm_intent_routing' },
     });
   });
   it('routes an explicit indicator investigation to SIEM without an LLM call', async () => {

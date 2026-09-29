@@ -51,6 +51,11 @@ describe('Control Plane HTTP client', () => {
       result: { summary: 'ok', action: task.action }, evidenceRefs: [], errors: [], metrics: { durationMs: 1, outputBytes: 0 },
       completedAt: new Date().toISOString(),
     });
+    await client.recordModelUsage({
+      schemaVersion: 'gss.model-usage.v1', usageId: 'USG-test', caseId: task.caseId, traceId: 'trace-test',
+      model: 'gpt-5.6-sol', reasoningEffort: 'medium', routeReason: 'test', inputTokens: 10, outputTokens: 5,
+      cachedTokens: 0, latencyMs: 2, retryCount: 0, estimatedCostMicros: 0, status: 'SUCCEEDED', createdAt: new Date().toISOString(),
+    });
     await client.claimPendingDispatches('owner');
     await client.markOutboxPublished('EVT-test', 'owner');
     await client.releaseOutbox('EVT-test', 'owner', 'offline', new Date().toISOString());
@@ -63,6 +68,7 @@ describe('Control Plane HTTP client', () => {
       'POST /control/v1/tasks',
       'POST /control/v1/tasks/TSK-test/status',
       'POST /control/v1/results',
+      'POST /control/v1/model-usage',
       'POST /control/v1/outbox/claim',
       'POST /control/v1/outbox/EVT-test/publish',
       'POST /control/v1/outbox/EVT-test/release',
