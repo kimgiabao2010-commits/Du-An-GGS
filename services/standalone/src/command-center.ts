@@ -9,6 +9,7 @@ import {
   FilesystemArtifactStore, PostgresRuntimeStore, type CommitObservationResult, type RuntimeStore,
 } from '@asq/persistence';
 import { LlmRouter, type RouterDecision } from './agent/llm-router.js';
+import { controlPlaneClientFromEnvironment, type ControlPlaneTaskClient } from './control-plane-client.js';
 
 interface Router { routePrompt(prompt: string): Promise<RouterDecision | { agent: string; instruction: string; action?: CapabilityAction; parameters?: Record<string, unknown> }> }
 
@@ -104,6 +105,7 @@ export class CentralCommandOrchestrator {
   private planning = 0;
   private pending = new Map<string, PendingTask>();
   private readonly outboxClaimOwner = `command-center-${randomUUID()}`;
+  private readonly controlPlane: ControlPlaneTaskClient | null = controlPlaneClientFromEnvironment();
   private outboxTimer?: ReturnType<typeof setInterval>;
   private drainingOutbox = false;
 
@@ -206,7 +208,10 @@ export class CentralCommandOrchestrator {
       timeoutMs: 15_000,
       createdAt: new Date().toISOString(),
     };
-    if (this.store && !(await this.store.createTask(task, actorId, { runId })).created) {
+    const created = this.controlPlane
+      ? await this.controlPlane.createTask(task, actorId, { runId })
+      : await this.store?.createTask(task, actorId, { runId }) ?? { created: true };
+    if (!created.created) {
       this.status('DUPLICATE', 'This request has already created a task.', caseId, { caseId, taskId, task });
       return;
     }
@@ -259,13 +264,14 @@ export class CentralCommandOrchestrator {
       completedAt: new Date().toISOString(),
     };
     const proposal = status === 'COMPLETED' ? nextStepProposal(pending.task, result.result) : undefined;
-    const loopResult = await this.store?.recordResult(result, observation,
-      status === 'COMPLETED' && pending.runId && proposal ? {
+    const loop = status === 'COMPLETED' && pending.runId && proposal ? {
         runId: pending.runId,
         source: pending.task.target,
         ...(artifact?.sha256 ? { artifactHash: artifact.sha256 } : {}),
         proposal,
-      } : undefined);
+      } : undefined;
+    const remoteResult = this.controlPlane ? await this.controlPlane.recordResult(result, observation, loop) : undefined;
+    const loopResult = this.controlPlane ? remoteResult?.loop : await this.store?.recordResult(result, observation, loop);
     await this.store?.appendMessage(pending.caseId, 'WORKER', observation.summary, { taskId, evidenceRefs });
     const durableLoop = loopResult && typeof loopResult === 'object' && 'decision' in loopResult
       ? loopResult as CommitObservationResult : undefined;
@@ -317,11 +323,9 @@ export class CentralCommandOrchestrator {
       timeoutMs: 15_000,
       createdAt: loop.decision.createdAt,
     };
-    await this.store?.createTask(task, 'gss-planner', {
-      runId: loop.run.runId,
-      ...(parentTaskId ? { parentTaskId } : {}),
-      actionFingerprint: action.fingerprint,
-    });
+    const linkage = { runId: loop.run.runId, ...(parentTaskId ? { parentTaskId } : {}), actionFingerprint: action.fingerprint };
+    if (this.controlPlane) await this.controlPlane.createTask(task, 'gss-planner', linkage);
+    else await this.store?.createTask(task, 'gss-planner', linkage);
     const agentId = action.target === 'cli' ? 'cli-worker-agent' : action.target === 'ide' ? 'ide-worker-agent' : 'siem-worker-agent';
     const instruction = capability.instruction ?? String(action.parameters.question ?? action.parameters.query ?? action.action);
     const delivered = await this.dispatchPreparedTask(task, agentId, instruction, loop.run.runId);

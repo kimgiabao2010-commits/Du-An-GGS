@@ -171,8 +171,10 @@ export class ControlPlaneServer {
     if (!result || result.schemaVersion !== RESULT_SCHEMA_VERSION || typeof result.taskId !== 'string' || typeof result.caseId !== 'string') {
       throw Object.assign(new Error('valid gss.result.v1 result is required'), { statusCode: 422 });
     }
-    const stored = await this.runtime.recordResult(result);
-    return json(response, 200, { accepted: true, replay: !stored });
+    const observation = input.observation && typeof input.observation === 'object' ? input.observation as Parameters<PostgresRuntimeStore['recordResult']>[1] : undefined;
+    const loop = input.loop && typeof input.loop === 'object' ? input.loop as Parameters<PostgresRuntimeStore['recordResult']>[2] : undefined;
+    const stored = await this.runtime.recordResult(result, observation, loop);
+    return json(response, 200, { accepted: true, replay: !stored, ...(stored ? { loop: stored } : {}) });
   }
 
   private async getFrontier(caseId: string, response: ServerResponse): Promise<void> {

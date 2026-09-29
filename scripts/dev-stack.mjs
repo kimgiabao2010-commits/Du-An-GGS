@@ -32,6 +32,7 @@ const runtimeEnv = {
   ASQ_WEB_ORIGIN: process.env.ASQ_WEB_ORIGIN || 'http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001',
   ASQ_WS_URL: process.env.ASQ_WS_URL || 'ws://127.0.0.1:4000',
   ASQ_LOCAL_RUNTIME: 'true',
+  CONTROL_PLANE_URL: process.env.CONTROL_PLANE_URL || 'http://127.0.0.1:4100',
   GSS_DATA_DIR: process.env.GSS_DATA_DIR || resolve(root, 'data'),
   GSS_IDE_REPOSITORY_ROOTS: process.env.GSS_IDE_REPOSITORY_ROOTS || root,
   ASQ_WORKER_TOKEN: token('cli-worker-agent', 'CLI_DAEMON'),
