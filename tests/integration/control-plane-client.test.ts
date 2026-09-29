@@ -4,6 +4,7 @@ import { HttpControlPlaneClient } from '../../services/standalone/src/control-pl
 import type { GssTaskContract } from '../../packages/sdk/src/index.ts';
 
 const requests: string[] = [];
+const authorizationHeaders: Array<string | undefined> = [];
 let server: ReturnType<typeof createServer>;
 let baseUrl = '';
 
@@ -16,6 +17,7 @@ function reply(response: ServerResponse, body: Record<string, unknown>): void {
 beforeAll(async () => {
   server = createServer((request: IncomingMessage, response: ServerResponse) => {
     requests.push(`${request.method} ${request.url}`);
+    authorizationHeaders.push(request.headers.authorization);
     if (request.url?.endsWith('/investigation-run')) return reply(response, { run: { runId: 'RUN-test' } });
     if (request.url?.endsWith('/messages')) return reply(response, { messageId: 'MSG-test' });
     if (request.url?.endsWith('/outbox/claim')) return reply(response, { dispatches: [] });
@@ -37,7 +39,7 @@ afterAll(async () => { await new Promise<void>(resolve => server.close(() => res
 
 describe('Control Plane HTTP client', () => {
   it('uses the authority endpoints for lifecycle, task, result and outbox writes', async () => {
-    const client = new HttpControlPlaneClient(baseUrl);
+    const client = new HttpControlPlaneClient(baseUrl, 'test-control-plane-token-32-characters');
     await client.ensureCase('CASE-test', 'analyst');
     await client.ensureInvestigationRun('CASE-test', 'analyst');
     await client.appendMessage('CASE-test', 'USER', 'investigate');
@@ -80,5 +82,10 @@ describe('Control Plane HTTP client', () => {
       'POST /control/v1/outbox/EVT-test/publish',
       'POST /control/v1/outbox/EVT-test/release',
     ]);
+    expect(authorizationHeaders.every(value => value === 'Bearer test-control-plane-token-32-characters')).toBe(true);
+  });
+
+  it('refuses to start without a strong service token', () => {
+    expect(() => new HttpControlPlaneClient(baseUrl, 'short')).toThrow(/at least 32 characters/);
   });
 });

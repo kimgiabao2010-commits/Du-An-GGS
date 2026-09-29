@@ -40,6 +40,7 @@ P0 establishes the first durable Control Plane boundary for GSS. The service is 
 - `Ctrl+Shift+B` strips the private signing key from Command Center, CLI, IDE, SIEM and UI child processes; only Control Plane receives it.
 - Local mode marks unsigned artifacts explicitly. Staging can set `GSS_REQUIRE_ARTIFACT_SIGNATURE=true` to fail startup when key configuration is missing and reject evidence when signing fails.
 - Readiness reporting now distinguishes optional local unsigned mode from the staging signature hard gate.
+- All `/control/v1/*` routes now require a constant-time-checked bearer token. `Ctrl+Shift+B` generates it ephemerally and exposes it only to Control Plane and Command Center.
 - Local `npm audit` could not reach the npm advisory endpoint; security result remains NOT RUN locally and is delegated to CI.
 - GitHub Actions now has a PostgreSQL service job that runs migrations before integration tests.
 - `git diff --check`: PASS.

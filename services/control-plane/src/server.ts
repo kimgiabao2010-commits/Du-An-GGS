@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { createPrivateKey, randomUUID, type KeyObject } from 'node:crypto';
+import { createPrivateKey, randomUUID, timingSafeEqual, type KeyObject } from 'node:crypto';
 import { Pool } from 'pg';
 import {
   RESULT_SCHEMA_VERSION,
@@ -38,6 +38,14 @@ function json(response: ServerResponse, status: number, body: Json): void {
 
 function actor(request: IncomingMessage): string {
   return String(request.headers['x-gss-actor'] ?? 'control-api');
+}
+
+function authorized(request: IncomingMessage, expectedToken: string): boolean {
+  const header = request.headers.authorization;
+  if (!header?.startsWith('Bearer ')) return false;
+  const actual = Buffer.from(header.slice(7), 'utf8');
+  const expected = Buffer.from(expectedToken, 'utf8');
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
 async function body(request: IncomingMessage): Promise<Record<string, unknown>> {
@@ -95,10 +103,13 @@ export class ControlPlaneServer {
   private readonly investigations: PostgresInvestigationStore;
   private readonly artifactSigningPrivateKey?: KeyObject;
   private readonly artifactSigningKeyId?: string;
+  private readonly internalToken: string;
 
   public constructor(private readonly port = Number(process.env.CONTROL_PLANE_PORT ?? 4100)) {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) throw new Error('DATABASE_URL is required for the Control Plane');
+    this.internalToken = process.env.GSS_CONTROL_PLANE_TOKEN?.trim() ?? '';
+    if (this.internalToken.length < 32) throw new Error('GSS_CONTROL_PLANE_TOKEN must contain at least 32 characters');
     this.pool = new Pool({ connectionString, max: 10, ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: true } : undefined });
     this.runtime = new PostgresRuntimeStore(this.pool);
     this.investigations = new PostgresInvestigationStore(this.pool);
@@ -138,6 +149,9 @@ export class ControlPlaneServer {
           status: 'ready', storage: 'postgresql',
           artifactSigning: this.artifactSigningPrivateKey && this.artifactSigningKeyId ? 'configured' : 'unsigned_local',
         });
+      }
+      if (url.pathname.startsWith('/control/') && !authorized(request, this.internalToken)) {
+        return json(response, 401, { error: 'unauthorized' });
       }
       if (method === 'POST' && url.pathname === '/control/v1/cases') return this.createCase(request, response);
       const runMatch = url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/investigation-run$/);

@@ -29,12 +29,14 @@ export interface ControlPlaneTaskClient {
 }
 
 export class HttpControlPlaneClient implements ControlPlaneTaskClient {
-  public constructor(private readonly baseUrl: string) {}
+  public constructor(private readonly baseUrl: string, private readonly token = process.env.GSS_CONTROL_PLANE_TOKEN?.trim()) {
+    if (!token || token.length < 32) throw new Error('GSS_CONTROL_PLANE_TOKEN must contain at least 32 characters');
+  }
 
   private async request(path: string, init: RequestInit, expected: number[]): Promise<Record<string, unknown>> {
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,
-      headers: { 'content-type': 'application/json', ...(init.headers ?? {}) },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${this.token}`, ...(init.headers ?? {}) },
     });
     const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
     if (!expected.includes(response.status)) {

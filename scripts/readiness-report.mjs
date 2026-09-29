@@ -39,6 +39,9 @@ check('PostgreSQL configuration', Boolean(process.env.DATABASE_URL?.trim()),
 check('PostgreSQL connectivity', postgresLive, postgresDetail);
 check('Control Plane configuration', true,
   process.env.CONTROL_PLANE_URL || 'Using Ctrl+Shift+B loopback default http://127.0.0.1:4100.');
+check('Control Plane internal authentication', true,
+  process.env.GSS_CONTROL_PLANE_TOKEN?.length >= 32
+    ? 'A service token is configured.' : 'Ctrl+Shift+B will generate an ephemeral 256-bit service token.');
 const signatureRequired = process.env.GSS_REQUIRE_ARTIFACT_SIGNATURE === 'true';
 const signingConfigured = Boolean(process.env.GSS_ARTIFACT_SIGNING_PRIVATE_KEY_BASE64?.trim() && process.env.GSS_ARTIFACT_SIGNING_KEY_ID?.trim());
 check('Artifact signing', signingConfigured,

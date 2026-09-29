@@ -11,6 +11,8 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const databaseUrl = process.env.DATABASE_URL?.trim();
 const secret = process.env.ASQ_JWT_SECRET && process.env.ASQ_JWT_SECRET.length >= 32
   ? process.env.ASQ_JWT_SECRET : randomBytes(32).toString('base64url');
+const controlPlaneToken = process.env.GSS_CONTROL_PLANE_TOKEN && process.env.GSS_CONTROL_PLANE_TOKEN.length >= 32
+  ? process.env.GSS_CONTROL_PLANE_TOKEN : randomBytes(32).toString('base64url');
 // Fixed preview credentials requested for the one-button local runtime. The
 // auth route accepts this weak password only when the launcher marks the
 // request as an explicitly insecure loopback demo session.
@@ -33,6 +35,7 @@ const runtimeEnv = {
   ASQ_WS_URL: process.env.ASQ_WS_URL || 'ws://127.0.0.1:4000',
   ASQ_LOCAL_RUNTIME: 'true',
   CONTROL_PLANE_URL: process.env.CONTROL_PLANE_URL || 'http://127.0.0.1:4100',
+  GSS_CONTROL_PLANE_TOKEN: controlPlaneToken,
   GSS_DATA_DIR: process.env.GSS_DATA_DIR || resolve(root, 'data'),
   GSS_IDE_REPOSITORY_ROOTS: process.env.GSS_IDE_REPOSITORY_ROOTS || root,
   ASQ_WORKER_TOKEN: token('cli-worker-agent', 'CLI_DAEMON'),
@@ -134,6 +137,7 @@ function stop(exitCode = 0) {
 for (const [name, command, args, cwd] of services) {
   const childEnv = { ...runtimeEnv, TS_NODE_TRANSPILE_ONLY: 'true', TS_NODE_PREFER_TS_EXTS: 'true' };
   if (name !== 'Control Plane') delete childEnv.GSS_ARTIFACT_SIGNING_PRIVATE_KEY_BASE64;
+  if (name !== 'Control Plane' && name !== 'Command Center') delete childEnv.GSS_CONTROL_PLANE_TOKEN;
   const child = spawn(command, args, {
     cwd,
     env: childEnv,
