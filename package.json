@@ -33,7 +33,8 @@
     "ts-node": "^10.9.2",
     "tsx": "^4.19.2",
     "turbo": "^2.3.0",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^5.0.2"
   },
   "dependencies": {
     "@google/genai": "^2.21.0",

@@ -18,9 +18,5 @@ export default function config(phase) {
         { source: '/siem', destination: '/control/siem', permanent: false },
       ];
     },
-    webpack(config) {
-      config.resolve.extensions = ['.tsx', '.ts', ...config.resolve.extensions.filter(ext => ext !== '.tsx' && ext !== '.ts')];
-      return config;
-    }
   };
 }

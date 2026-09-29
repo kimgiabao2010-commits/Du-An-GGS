@@ -7,13 +7,13 @@ import { isInvestigationEvidence, isInvestigationVerdict } from '../src/investig
 
 // Mock ws
 vi.mock('ws', () => {
-  const WebSocket = vi.fn().mockImplementation(() => ({
-    on: vi.fn(),
-    send: vi.fn(),
-    close: vi.fn(),
-    readyState: 1 // OPEN
-  }));
-  Object.assign(WebSocket, { OPEN: 1 });
+  class WebSocket {
+    static readonly OPEN = 1;
+    readonly on = vi.fn();
+    readonly send = vi.fn();
+    readonly close = vi.fn();
+    readonly readyState = WebSocket.OPEN;
+  }
 
   return {
     WebSocket

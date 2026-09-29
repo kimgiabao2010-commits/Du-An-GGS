@@ -9,7 +9,7 @@ const managedEnvironment = [
   'ASQ_LOCAL_RUNTIME',
 ] as const;
 
-describe.sequential('local web authentication', () => {
+describe('local web authentication', () => {
   const originalEnvironment = new Map<string, string | undefined>();
 
   beforeEach(() => {

@@ -48,7 +48,8 @@ P0 establishes the first durable Control Plane boundary for GSS. The service is 
 - Control Plane signs only artifacts already registered against a real case/task; Command Center rejects evidence when durable metadata registration fails.
 - PostgreSQL load/recovery gate now drives concurrent cases, opens a fresh store instance, replays every result, and asserts exactly one frontier and decision per logical transition.
 - CI security gates now include pinned OSV-Scanner v2.6.0 reusable workflows and Trivy v0.36.0 filesystem scans for vulnerabilities, misconfiguration and secrets; Trivy JSON evidence is retained for 30 days and High/Critical findings fail the build.
-- Local `npm audit` could not reach the npm advisory endpoint; security result remains NOT RUN locally and is delegated to CI.
+- GitHub security gates exposed Critical/High advisories in Next.js 14/PostCSS; the UI runtime was migrated to patched Next.js 16.3.7 while retaining monorepo-compatible React 18.3.1, and the deprecated middleware convention was migrated to `proxy.ts`.
+- Local full dependency audit: PASS with 0 vulnerabilities after the Next.js 16.3.7 and Vitest 5.0.2 migrations; the Vitest major upgrade was verified against the complete unit/integration/smoke suite.
 - GitHub Actions now has a PostgreSQL service job that runs migrations before integration tests.
 - `git diff --check`: PASS.
 
@@ -62,7 +63,7 @@ P0 establishes the first durable Control Plane boundary for GSS. The service is 
 
 ## Next implementation slice
 
-1. Add contract tests for `200/201/403/404/409/422/503` semantics.
-2. Add server-side route authorization for `/standalone` and `/control`.
-3. Provision a protected staging signing key and distribute only its public verification key to workers.
-4. Run Chronicle staging and Docker sandbox hard gates when their external prerequisites are available.
+1. Add contract tests for remaining `200/201/403/404/409/422/503` semantics.
+2. Provision a protected staging signing key and distribute only its public verification key to workers.
+3. Run Chronicle staging and Docker sandbox hard gates when their external prerequisites are available.
+4. Add the OIDC provider, S3-compatible artifact backend and OTel collector required for staging.

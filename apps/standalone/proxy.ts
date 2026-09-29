@@ -26,7 +26,7 @@ async function session(request: NextRequest): Promise<SessionClaims | null> {
   } catch { return null; }
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const claims = await session(request);
   if (pathname === '/') return NextResponse.redirect(new URL(claims ? '/standalone' : '/login', request.url));
