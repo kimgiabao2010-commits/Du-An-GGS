@@ -14,6 +14,7 @@
     "skills:audit": "node agent-skills/scripts/audit-skills.mjs",
     "dev": "node scripts/dev-stack.mjs",
     "dev:check": "node scripts/dev-stack.mjs --dry-run",
+    "readiness": "node scripts/readiness-report.mjs",
     "db:migrate": "node scripts/migrate-postgres.mjs",
     "build": "turbo run build",
     "test": "npm run test:unit && npm run test:integration && npm run test:smoke",

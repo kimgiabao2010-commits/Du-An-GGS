@@ -29,6 +29,7 @@ P0 establishes the first durable Control Plane boundary for GSS. The service is 
 - PostgreSQL durable-loop test added; it runs when `DATABASE_URL` is present and is intentionally skipped only in local environments without PostgreSQL.
 - Model usage ledger is now wired for real LLM calls, including success/failure, token counts, latency, route reason, retry count and configurable cost estimate.
 - `.env.example` now documents `CONTROL_PLANE_URL`, `CONTROL_PLANE_PORT`, and configurable model cost rates.
+- Added `npm run readiness` to report hard prerequisites without printing secrets or claiming live external verification.
 - GitHub Actions now has a PostgreSQL service job that runs migrations before integration tests.
 - `git diff --check`: PASS.
 
