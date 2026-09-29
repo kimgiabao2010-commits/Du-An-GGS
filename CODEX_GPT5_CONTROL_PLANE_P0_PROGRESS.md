@@ -17,6 +17,7 @@ P0 establishes the first durable Control Plane boundary for GSS. The service is 
 - Exposed durable investigation run/frontier reads from persistence.
 - Added Control Plane to the Ctrl+Shift+B launcher before Command Center and worker processes.
 - Full-stack Command Center now uses the Control Plane HTTP client for task creation and result persistence; direct persistence remains only for standalone compatibility when `CONTROL_PLANE_URL` is absent.
+- Full-stack Command Center now routes case creation, investigation-run creation, messages, and case-state transitions through the same authority.
 - Updated the workspace lockfile.
 - `tsc --project services/control-plane/tsconfig.json`: PASS.
 - `npm.cmd run typecheck`: PASS.
@@ -30,7 +31,7 @@ P0 establishes the first durable Control Plane boundary for GSS. The service is 
 - Chronicle staging credentials, dataset, and external UDM Search verification are not configured.
 - Docker/gVisor sandbox hard gate is not part of this P0 slice.
 - Standalone WebSocket intake still contains compatibility logic and must be migrated to call the Control Plane exclusively in the next slice.
-- Case/message/status writes still need to move behind the authority API before the compatibility path can be removed.
+- Outbox claim/publish and worker status writes still need an authority API before the compatibility path can be removed.
 
 ## Next implementation slice
 

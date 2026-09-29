@@ -166,10 +166,17 @@ export class CentralCommandOrchestrator {
     const actorId = String(msg.agentId);
     let runId: string | undefined;
     if (this.store) {
-      await this.store.ensureCase(caseId, actorId);
-      runId = (await this.store.ensureInvestigationRun?.(caseId, actorId))?.runId;
-      await this.store.appendMessage(caseId, 'USER', prompt, { requestMessageId: msg.message_id });
-      await this.store.transitionCase(caseId, 'TRIAGING');
+      if (this.controlPlane) {
+        await this.controlPlane.ensureCase(caseId, actorId);
+        runId = (await this.controlPlane.ensureInvestigationRun(caseId, actorId)).runId;
+        await this.controlPlane.appendMessage(caseId, 'USER', prompt, { requestMessageId: msg.message_id });
+        await this.controlPlane.transitionCase(caseId, 'TRIAGING');
+      } else {
+        await this.store.ensureCase(caseId, actorId);
+        runId = (await this.store.ensureInvestigationRun?.(caseId, actorId))?.runId;
+        await this.store.appendMessage(caseId, 'USER', prompt, { requestMessageId: msg.message_id });
+        await this.store.transitionCase(caseId, 'TRIAGING');
+      }
     }
     this.status('RECEIVED', 'Request accepted for triage.', caseId, { caseId, caseState: 'TRIAGING' });
 
@@ -181,8 +188,13 @@ export class CentralCommandOrchestrator {
 
     if (!['cli', 'ide', 'siem'].includes(decision.agent)) {
       const state = decision.agent === 'chat' ? 'CHAT' : 'ERROR';
-      await this.store?.appendMessage(caseId, decision.agent === 'chat' ? 'ASSISTANT' : 'SYSTEM', decision.instruction);
-      await this.store?.transitionCase(caseId, decision.agent === 'chat' ? 'RESPONDING' : 'TRIAGING');
+      if (this.controlPlane) {
+        await this.controlPlane.appendMessage(caseId, decision.agent === 'chat' ? 'ASSISTANT' : 'SYSTEM', decision.instruction);
+        await this.controlPlane.transitionCase(caseId, decision.agent === 'chat' ? 'RESPONDING' : 'TRIAGING');
+      } else {
+        await this.store?.appendMessage(caseId, decision.agent === 'chat' ? 'ASSISTANT' : 'SYSTEM', decision.instruction);
+        await this.store?.transitionCase(caseId, decision.agent === 'chat' ? 'RESPONDING' : 'TRIAGING');
+      }
       this.status(state, decision.instruction, caseId, { caseId, caseState: decision.agent === 'chat' ? 'RESPONDING' : 'TRIAGING' });
       return;
     }
@@ -215,7 +227,8 @@ export class CentralCommandOrchestrator {
       this.status('DUPLICATE', 'This request has already created a task.', caseId, { caseId, taskId, task });
       return;
     }
-    await this.store?.transitionCase(caseId, 'COLLECTING_EVIDENCE');
+    if (this.controlPlane) await this.controlPlane.transitionCase(caseId, 'COLLECTING_EVIDENCE');
+    else await this.store?.transitionCase(caseId, 'COLLECTING_EVIDENCE');
 
     const agentId = decision.agent === 'cli' ? 'cli-worker-agent' : decision.agent === 'ide' ? 'ide-worker-agent' : 'siem-worker-agent';
     await this.dispatchPreparedTask(task, agentId, capability.instruction ?? decision.instruction, runId);
@@ -272,12 +285,14 @@ export class CentralCommandOrchestrator {
       } : undefined;
     const remoteResult = this.controlPlane ? await this.controlPlane.recordResult(result, observation, loop) : undefined;
     const loopResult = this.controlPlane ? remoteResult?.loop : await this.store?.recordResult(result, observation, loop);
-    await this.store?.appendMessage(pending.caseId, 'WORKER', observation.summary, { taskId, evidenceRefs });
+    if (this.controlPlane) await this.controlPlane.appendMessage(pending.caseId, 'WORKER', observation.summary, { taskId, evidenceRefs });
+    else await this.store?.appendMessage(pending.caseId, 'WORKER', observation.summary, { taskId, evidenceRefs });
     const durableLoop = loopResult && typeof loopResult === 'object' && 'decision' in loopResult
       ? loopResult as CommitObservationResult : undefined;
     const nextCaseState: CaseState = status !== 'COMPLETED' || durableLoop?.decision.kind === 'BLOCKED'
       ? 'INVESTIGATING' : durableLoop?.decision.kind === 'DISPATCH' ? 'COLLECTING_EVIDENCE' : 'ANALYZING';
-    await this.store?.transitionCase(pending.caseId, nextCaseState);
+    if (this.controlPlane) await this.controlPlane.transitionCase(pending.caseId, nextCaseState);
+    else await this.store?.transitionCase(pending.caseId, nextCaseState);
     this.status(workerStatus, status === 'COMPLETED' ? observation.summary : `Worker did not produce verified evidence: ${observation.summary}`,
       pending.caseId, { caseId: pending.caseId, taskId, result, observation, caseState: nextCaseState });
     if (durableLoop?.decision.kind === 'DISPATCH') {

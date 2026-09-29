@@ -1,4 +1,4 @@
-import type { GssResultContract, GssTaskContract, NextStepProposal, ObservationPack } from '@asq/sdk';
+import type { CaseState, GssResultContract, GssTaskContract, InvestigationRun, NextStepProposal, ObservationPack } from '@asq/sdk';
 
 export interface TaskLinkage {
   runId?: string;
@@ -7,6 +7,10 @@ export interface TaskLinkage {
 }
 
 export interface ControlPlaneTaskClient {
+  ensureCase(caseId: string, actorId: string): Promise<void>;
+  ensureInvestigationRun(caseId: string, requestedBy: string): Promise<InvestigationRun>;
+  appendMessage(caseId: string, role: 'USER' | 'ASSISTANT' | 'SYSTEM' | 'WORKER', content: string, metadata?: Record<string, unknown>): Promise<string>;
+  transitionCase(caseId: string, state: CaseState): Promise<void>;
   createTask(task: GssTaskContract, requestedBy: string, linkage?: TaskLinkage): Promise<{ created: boolean; task?: GssTaskContract }>;
   recordResult(result: GssResultContract, observation?: ObservationPack, loop?: {
     runId: string;
@@ -30,6 +34,32 @@ export class HttpControlPlaneClient implements ControlPlaneTaskClient {
       throw new Error(message);
     }
     return payload;
+  }
+
+  public async ensureCase(caseId: string, actorId: string): Promise<void> {
+    await this.request('/control/v1/cases', { method: 'POST', headers: { 'x-gss-actor': actorId }, body: JSON.stringify({ caseId }) }, [200, 201]);
+  }
+
+  public async ensureInvestigationRun(caseId: string, requestedBy: string): Promise<InvestigationRun> {
+    const payload = await this.request(`/control/v1/cases/${encodeURIComponent(caseId)}/investigation-run`, {
+      method: 'POST', headers: { 'x-gss-actor': requestedBy }, body: JSON.stringify({}),
+    }, [200, 201]);
+    if (!payload.run || typeof payload.run !== 'object') throw new Error('Control Plane returned no investigation run');
+    return payload.run as InvestigationRun;
+  }
+
+  public async appendMessage(caseId: string, role: 'USER' | 'ASSISTANT' | 'SYSTEM' | 'WORKER', content: string, metadata: Record<string, unknown> = {}): Promise<string> {
+    const payload = await this.request(`/control/v1/cases/${encodeURIComponent(caseId)}/messages`, {
+      method: 'POST', headers: { 'x-gss-actor': role }, body: JSON.stringify({ role, content, metadata }),
+    }, [200, 201]);
+    if (typeof payload.messageId !== 'string') throw new Error('Control Plane returned no message id');
+    return payload.messageId;
+  }
+
+  public async transitionCase(caseId: string, state: CaseState): Promise<void> {
+    await this.request(`/control/v1/cases/${encodeURIComponent(caseId)}/state`, {
+      method: 'POST', headers: { 'x-gss-actor': 'command-center' }, body: JSON.stringify({ state }),
+    }, [200]);
   }
 
   public async createTask(task: GssTaskContract, requestedBy: string, linkage: TaskLinkage = {}) {

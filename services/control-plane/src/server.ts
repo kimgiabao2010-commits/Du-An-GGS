@@ -5,6 +5,7 @@ import {
   RESULT_SCHEMA_VERSION,
   sha256Canonical,
   TASK_SCHEMA_VERSION,
+  type CaseState,
   type GssResultContract,
   type GssTaskContract,
   type CapabilityAction,
@@ -20,6 +21,8 @@ const TARGETS: Record<CapabilityAction, GssTaskContract['target']> = {
   inspect_hostname: 'cli', inspect_system: 'cli', inspect_network_config: 'cli', inspect_network_connections: 'cli',
   analyze_code: 'ide', search_code: 'ide', search_siem: 'siem',
 };
+const CASE_STATES = new Set<CaseState>(['NEW', 'TRIAGING', 'COLLECTING_EVIDENCE', 'INVESTIGATING', 'ANALYZING', 'RESPONDING', 'CLOSED']);
+const MESSAGE_ROLES = new Set(['USER', 'ASSISTANT', 'SYSTEM', 'WORKER']);
 
 type Json = Record<string, unknown> | unknown[];
 
@@ -119,6 +122,13 @@ export class ControlPlaneServer {
         await this.runtime.ready();
         return json(response, 200, { status: 'ready', storage: 'postgresql' });
       }
+      if (method === 'POST' && url.pathname === '/control/v1/cases') return this.createCase(request, response);
+      const runMatch = url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/investigation-run$/);
+      if (method === 'POST' && runMatch) return this.ensureRun(decodeURIComponent(runMatch[1]), request, response);
+      const messageMatch = url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/messages$/);
+      if (method === 'POST' && messageMatch) return this.appendMessage(decodeURIComponent(messageMatch[1]), request, response);
+      const stateMatch = url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/state$/);
+      if (method === 'POST' && stateMatch) return this.transitionCase(decodeURIComponent(stateMatch[1]), request, response);
       if (method === 'POST' && url.pathname === '/control/v1/tasks') return this.createTask(request, response);
       if (method === 'GET' && /^\/control\/v1\/tasks\/[^/]+$/.test(url.pathname)) return this.getTask(url.pathname.split('/').pop()!, response);
       if (method === 'POST' && url.pathname === '/control/v1/results') return this.recordResult(request, response);
@@ -157,6 +167,35 @@ export class ControlPlaneServer {
     });
     if (!result.created) return json(response, 200, { task, replay: true });
     return json(response, 201, { task, replay: false });
+  }
+
+  private async createCase(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const input = await body(request);
+    const caseId = requiredString(input.caseId, 'caseId');
+    await this.runtime.ensureCase(caseId, actor(request));
+    return json(response, 201, { caseId, created: true });
+  }
+
+  private async ensureRun(caseId: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const run = await this.runtime.ensureInvestigationRun(caseId, actor(request));
+    return json(response, 201, { run });
+  }
+
+  private async appendMessage(caseId: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const input = await body(request);
+    const role = requiredString(input.role, 'role');
+    if (!MESSAGE_ROLES.has(role)) throw Object.assign(new Error('role is invalid'), { statusCode: 422 });
+    const messageId = await this.runtime.appendMessage(caseId, role as 'USER' | 'ASSISTANT' | 'SYSTEM' | 'WORKER',
+      requiredString(input.content, 'content'), input.metadata && typeof input.metadata === 'object' ? input.metadata as Record<string, unknown> : {});
+    return json(response, 201, { messageId });
+  }
+
+  private async transitionCase(caseId: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const input = await body(request);
+    const state = requiredString(input.state, 'state') as CaseState;
+    if (!CASE_STATES.has(state)) throw Object.assign(new Error('state is invalid'), { statusCode: 422 });
+    await this.runtime.transitionCase(caseId, state);
+    return json(response, 200, { caseId, state });
   }
 
   private async getTask(taskId: string, response: ServerResponse): Promise<void> {
