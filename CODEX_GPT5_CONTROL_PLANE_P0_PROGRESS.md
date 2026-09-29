@@ -25,7 +25,7 @@ P0 establishes the first durable Control Plane boundary for GSS. The service is 
 - `npm.cmd run build`: PASS.
 - `npm.cmd run dev:check`: PASS.
 - Control Plane HTTP client contract test: PASS.
-- Integration suite: 49 tests PASS.
+- Integration suite: 50 tests PASS.
 - PostgreSQL durable-loop test added; it runs when `DATABASE_URL` is present and is intentionally skipped only in local environments without PostgreSQL.
 - Model usage ledger is now wired for real LLM calls, including success/failure, token counts, latency, route reason, retry count and configurable cost estimate.
 - `.env.example` now documents `CONTROL_PLANE_URL`, `CONTROL_PLANE_PORT`, and configurable model cost rates.
@@ -46,6 +46,7 @@ P0 establishes the first durable Control Plane boundary for GSS. The service is 
 - Production preview HTTP verification PASS: anonymous Control Plane access redirects to login, login issues an HttpOnly cookie, authenticated `/standalone` and `/control/executions` return `200`, and legacy routes redirect to canonical workspace URLs.
 - PostgreSQL now stores immutable content-addressed artifact metadata (`case → task → SHA-256 → storage ref`) and rejects conflicting replay metadata.
 - Control Plane signs only artifacts already registered against a real case/task; Command Center rejects evidence when durable metadata registration fails.
+- PostgreSQL load/recovery gate now drives concurrent cases, opens a fresh store instance, replays every result, and asserts exactly one frontier and decision per logical transition.
 - Local `npm audit` could not reach the npm advisory endpoint; security result remains NOT RUN locally and is delegated to CI.
 - GitHub Actions now has a PostgreSQL service job that runs migrations before integration tests.
 - `git diff --check`: PASS.
