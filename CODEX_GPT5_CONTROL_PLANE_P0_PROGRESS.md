@@ -25,7 +25,7 @@ P0 establishes the first durable Control Plane boundary for GSS. The service is 
 - `npm.cmd run build`: PASS.
 - `npm.cmd run dev:check`: PASS.
 - Control Plane HTTP client contract test: PASS.
-- Integration suite: 42 tests PASS.
+- Integration suite: 49 tests PASS.
 - PostgreSQL durable-loop test added; it runs when `DATABASE_URL` is present and is intentionally skipped only in local environments without PostgreSQL.
 - Model usage ledger is now wired for real LLM calls, including success/failure, token counts, latency, route reason, retry count and configurable cost estimate.
 - `.env.example` now documents `CONTROL_PLANE_URL`, `CONTROL_PLANE_PORT`, and configurable model cost rates.
@@ -41,6 +41,9 @@ P0 establishes the first durable Control Plane boundary for GSS. The service is 
 - Local mode marks unsigned artifacts explicitly. Staging can set `GSS_REQUIRE_ARTIFACT_SIGNATURE=true` to fail startup when key configuration is missing and reject evidence when signing fails.
 - Readiness reporting now distinguishes optional local unsigned mode from the staging signature hard gate.
 - All `/control/v1/*` routes now require a constant-time-checked bearer token. `Ctrl+Shift+B` generates it ephemerally and exposes it only to Control Plane and Command Center.
+- UI trust boundaries now use canonical `/standalone/*` and `/control/*` routes with server-side HMAC session verification and role enforcement before rendering.
+- Local login issues the roadmap-aligned `SECURITY_ADMIN` role; WebSocket command authorization accepts it while retaining the legacy role only for compatibility tests.
+- Production preview HTTP verification PASS: anonymous Control Plane access redirects to login, login issues an HttpOnly cookie, authenticated `/standalone` and `/control/executions` return `200`, and legacy routes redirect to canonical workspace URLs.
 - Local `npm audit` could not reach the npm advisory endpoint; security result remains NOT RUN locally and is delegated to CI.
 - GitHub Actions now has a PostgreSQL service job that runs migrations before integration tests.
 - `git diff --check`: PASS.

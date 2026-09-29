@@ -30,7 +30,7 @@ export class WsCommandServer extends EventEmitter {
                 const cookie = info.req.headers.cookie?.split(';').map(v => v.trim())
                     .find(v => v.startsWith('asq-control-token='))?.slice('asq-control-token='.length);
                 const claims = this.signer.verify(bearer ?? cookie ?? '');
-                if (!claims || !['CISO_Admin', 'CLI_DAEMON', 'IDE_AGENT', 'SIEM'].includes(claims.role)) {
+                if (!claims || !['CISO_Admin', 'SECURITY_ADMIN', 'CLI_DAEMON', 'IDE_AGENT', 'SIEM'].includes(claims.role)) {
                     done(false, 401, 'Authentication required'); return;
                 }
                 (info.req as any).asqIdentity = claims;
@@ -40,7 +40,7 @@ export class WsCommandServer extends EventEmitter {
         this.wss.on('error', error => this.emit('server:error', error));
         this.wss.on('connection', (ws, request) => {
             const identity = (request as any).asqIdentity as TokenPayload;
-            const connectionId = identity.role === 'CISO_Admin' && this.clients.has(identity.agentId)
+            const connectionId = ['CISO_Admin', 'SECURITY_ADMIN'].includes(identity.role) && this.clients.has(identity.agentId)
                 ? identity.agentId + ':' + randomUUID() : identity.agentId;
             if (this.clients.has(connectionId)) { ws.close(1008, 'Duplicate identity'); return; }
             this.clients.set(connectionId, ws);
@@ -65,7 +65,7 @@ export class WsCommandServer extends EventEmitter {
                         if (data.payload.agentId !== identity.agentId) ws.close(1008, 'Identity mismatch');
                         return;
                     }
-                    if (data.type === 'COMMAND' && (identity.role !== 'CISO_Admin' ||
+                    if (data.type === 'COMMAND' && (!['CISO_Admin', 'SECURITY_ADMIN'].includes(identity.role) ||
                         !identity.permissions.includes('CONTROL'))) { ws.close(1008, 'Permission denied'); return; }
                     // Trusted identity is written last: frame fields cannot overwrite it.
                     this.emit('message', { ...data, agentId: identity.agentId, source: identity.role, identity });

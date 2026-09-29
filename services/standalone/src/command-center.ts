@@ -143,7 +143,7 @@ export class CentralCommandOrchestrator {
 
   private async handle(msg: any): Promise<void> {
     if (msg.type === 'RESULT' || msg.type === 'EVIDENCE') return this.handleWorkerResult(msg);
-    if (msg.type !== 'COMMAND' || msg.identity?.role !== 'CISO_Admin' || !msg.identity.permissions.includes('CONTROL')) return;
+    if (msg.type !== 'COMMAND' || !['CISO_Admin', 'SECURITY_ADMIN'].includes(msg.identity?.role) || !msg.identity.permissions.includes('CONTROL')) return;
 
     if (msg.payload.action === 'trigger_killswitch') {
       this.halted = true;

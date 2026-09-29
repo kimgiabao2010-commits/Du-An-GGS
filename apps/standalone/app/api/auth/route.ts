@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     const hash = (v: string) => createHash('sha256').update(v).digest();
     if (body.username !== username || typeof body.password !== 'string' ||
         !timingSafeEqual(hash(body.password), hash(password))) return NextResponse.json({ error: 'Authentication failed' }, { status: 401 });
-    const token = new TokenSigner().sign({ agentId: 'web-' + randomUUID(), role: 'CISO_Admin',
+    const token = new TokenSigner().sign({ agentId: 'web-' + randomUUID(), role: 'SECURITY_ADMIN',
       permissions: ['CONTROL'], timestamp: Date.now(), expiresAt: Date.now() + 3600000 });
     const response = NextResponse.json({ success: true });
     response.cookies.set('asq-control-token', token, { httpOnly: true, secure: requestUrl.protocol === 'https:',

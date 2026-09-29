@@ -10,17 +10,17 @@ import {
 import { useEffect, useState } from 'react';
 
 const navigation = [
-  { href: '/', label: 'SOC Console', icon: LayoutDashboard },
-  { href: '/tasks', label: 'Cases & Tasks', icon: ListChecks },
-  { href: '/evidence', label: 'Evidence', icon: FileCheck2 },
+  { href: '/standalone', label: 'SOC Console', icon: LayoutDashboard },
+  { href: '/standalone/tasks', label: 'Cases & Tasks', icon: ListChecks },
+  { href: '/standalone/evidence', label: 'Evidence', icon: FileCheck2 },
 ];
 
 const utilities = [
-  { href: '/executions', label: 'Executions', icon: Workflow },
-  { href: '/agents', label: 'Agents', icon: Bot },
-  { href: '/context', label: 'Cost & Context', icon: CircleDollarSign },
-  { href: '/logs', label: 'Logs', icon: ScrollText },
-  { href: '/siem', label: 'SIEM', icon: ShieldCheck },
+  { href: '/control/executions', label: 'Executions', icon: Workflow },
+  { href: '/control/agents', label: 'Agents', icon: Bot },
+  { href: '/control/context', label: 'Cost & Context', icon: CircleDollarSign },
+  { href: '/control/logs', label: 'Logs', icon: ScrollText },
+  { href: '/control/siem', label: 'SIEM', icon: ShieldCheck },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -29,6 +29,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const searchItems = [...navigation, ...utilities].filter(item => item.label.toLowerCase().includes(query.trim().toLowerCase()));
+
+  if (pathname === '/login') return <>{children}</>;
 
   useEffect(() => setOpen(false), [pathname]);
   useEffect(() => {
@@ -43,7 +45,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   const renderLink = ({ href, label, icon: Icon }: (typeof navigation)[number]) => {
-    const active = href === '/' ? pathname === href : pathname.startsWith(href);
+    const active = pathname === href || pathname.startsWith(`${href}/`);
     return <Link key={href} className={`shell-nav-link${active ? ' active' : ''}`} href={href} aria-current={active ? 'page' : undefined}>
       <Icon size={18} strokeWidth={1.8} aria-hidden="true" /><span>{label}</span>{active && <ChevronRight className="nav-chevron" size={14} aria-hidden="true" />}
     </Link>;
