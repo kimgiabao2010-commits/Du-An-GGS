@@ -2,13 +2,15 @@
 
 ## 2026-10-09 - SOC lab checkpoint requested for 11:25 AM
 
-Publication PREPARED, not yet pushed. Scope: explicit lab/replay/staging boundary; versioned lab evidence compatible with Chronicle v1; own-device allowlisted Windows metadata; immutable PostgreSQL migration 016; service-only import/query, transactional Frontier/decision/outbox/report; read-only ACL-protected lab desk; CLI/runbook and A-F product roadmap. No remediation, external paid model fallback, automatic log collection or staging gate bypass.
+Publication **PUSHED and remote verified at 11:26:18 AM Asia/Bangkok**: `467eac3d788b5785638d24e83a68563c8dcd05dd` (`feat: add evidence-first SOC lab telemetry vertical slice`), main. Non-force push succeeded; ls-remote matched local HEAD exactly. Git/network authorization delayed final confirmation about one minute beyond 11:25; source had already been saved/frozen. This receipt is a separate documentation-only commit, whose SHA is recorded by Git.
+
+Scope: explicit lab/replay/staging boundary; versioned lab evidence compatible with Chronicle v1; own-device allowlisted Windows metadata; immutable PostgreSQL migration 016; service-only import/query, transactional Frontier/decision/outbox/report; read-only ACL-protected lab desk; CLI/runbook and A-F product roadmap. No remediation, external paid model fallback, automatic log collection or staging gate bypass.
 
 Final verification at 11:17:39 Asia/Bangkok: **PASS**, source unchanged, clean build/typecheck/source/skills/smoke; **276 tests** (102 unit, 153 real isolated-PostgreSQL integration, 7 environment, 14 browser); both npm audit scopes report zero vulnerabilities. Source fingerprint `f2034c6d7ae74b6df027300d29d70fc0e95531c8b97fa40675b1882ad24c0bd8`. [Portable verification metadata](GSS_SOC_LAB_VERIFICATION_2026-10-09_CODEX.json); [scope and blockers](GSS_SOC_LAB_ADVANCEMENT_2026-10-09_CODEX.md).
 
 Real own-device export: 200 System metadata events; HTTP Control Plane -> PostgreSQL -> Frontier/report with restart/replay PASS. Runtime schema migration/clean install are NOT RUN. Metadata verdict is INSUFFICIENT_EVIDENCE with BLOCKED next step, not a three-step SOC reasoning loop. B-F gates remain incomplete; Chronicle live, Linux rootless sandbox, labeled model eval and production identity/retention/OTLP/load/freeze not certified. Remote CI NOT RUN.
 
-Allowlist: 34 source/test/migration/config/doc files; private .env, exported events/runtime artifacts, supplied private DOCX/PDF, debug.log, generated dist/build/cache changes excluded and preserved. Reviewed secret heuristic hit only the pre-existing explicit database placeholder in .env.example; not a substitute for a full secret scanner. No force push or deployment. Actual implementation SHA and remote confirmation will be appended only after publication.
+Allowlist: 34 source/test/migration/config/doc files; staged file list, diff whitespace check and all 34 file SHA-256 hashes matched the reviewed snapshot before commit. Private .env, exported events/runtime artifacts, supplied private DOCX/PDF, debug.log, generated dist/build/cache changes excluded and preserved. Reviewed secret heuristic hit only the pre-existing explicit database placeholder in .env.example; not a substitute for a full secret scanner. No force push or deployment. Receipt edits only GITLOG.md and the advancement report; verified runtime source unchanged.
 
 ## 2026-10-09 - Roadmap publication requested immediately
 

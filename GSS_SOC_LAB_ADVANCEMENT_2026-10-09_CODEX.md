@@ -26,7 +26,9 @@ Full final-source verification **PASS** at **11:17:39 Asia/Bangkok**: source aut
 
 Earlier attempts are not completion proof: one browser assertion matched Next.js's route announcer as well as the form error; fixed by scoped selector. Sandbox runs stalled during browser-process teardown and were stopped. Final authorized outside-sandbox verification completed with every command exit 0; malformed scalar/provenance checks and UI contract handling are included in the frozen source. The 254 prior tests are not reused as proof for this source. These local audits do not replace OSV/Trivy or staging gates.
 
-Actual telemetry verification completed at 11:16:52: Control Plane HTTP import/query, PostgreSQL transaction, Frontier/report, Control Plane restart and idempotent replay/readback PASS. Browser responsive/auth/failure tests are local; rendered report fixture is explicitly REPLAY, not live UI runtime evidence. Raw telemetry/logs remain private ignored data. Remote CI NOT RUN. Publication PREPARED for 11:25 AM; final receipt belongs in GITLOG.md after remote SHA confirmation.
+Actual telemetry verification completed at 11:16:52: Control Plane HTTP import/query, PostgreSQL transaction, Frontier/report, Control Plane restart and idempotent replay/readback PASS. Browser responsive/auth/failure tests are local; rendered report fixture is explicitly REPLAY, not live UI runtime evidence. Raw telemetry/logs remain private ignored data. Remote CI NOT RUN.
+
+Publication **PUSHED**, remote confirmed **11:26:18 AM Asia/Bangkok**: implementation `467eac3d788b5785638d24e83a68563c8dcd05dd` on main. Confirmation finished about one minute after the requested 11:25 checkpoint while Git/network authorization completed; no scope expansion. Non-force push; remote SHA matched local HEAD. This publication receipt is a separate documentation-only commit; Git records its actual SHA.
 
 ## Remaining roadmap
 
