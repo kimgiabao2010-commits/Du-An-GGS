@@ -11,7 +11,8 @@ export class BlastRadiusAssessmentEngine {
      */
     public calculateRiskScore(targetFiles: string[]): BlastRadiusResult {
         let score = 10;
-        let isSafeForAutoDeploy = true;
+        // A filename heuristic cannot authorize automatic deployment.
+        let isSafeForAutoDeploy = false;
         const criticalServicesAffected: string[] = [];
         
         console.log(`[BlastRadius Engine] ☢️ Khảo sát Khu vực bị tác động...`);

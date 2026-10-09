@@ -36,6 +36,7 @@ export interface SandboxVerificationResult {
     buildStatus: 'SUCCESS' | 'FAILED';
     unitTestsPassed: boolean;
     pullRequestUrl?: string;
+    reason?: string;
 }
 
 export enum NodeRole {
@@ -51,7 +52,7 @@ export interface ASQMessage<T = any> {
     incident_id: string;
     source: NodeRole | string;
     target: NodeRole | string;
-    type: 'EVENT' | 'TASK' | 'RESULT' | 'EVIDENCE' | 'COMMAND' | 'STATUS' | 'AUDIT';
+    type: 'EVENT' | 'TASK' | 'RESULT' | 'EVIDENCE' | 'COMMAND' | 'STATUS' | 'AUDIT' | 'TASK_ACCEPTED' | 'TASK_ACCEPTED_ACK' | 'RESULT_ACK' | 'HEARTBEAT' | 'HEARTBEAT_ACK';
     permission: string[];
     signature: string;
     timestamp: number;

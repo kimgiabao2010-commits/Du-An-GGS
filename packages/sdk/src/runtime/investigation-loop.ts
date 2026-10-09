@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { CapabilityAction, ObservationPack, TaskRisk, TaskTarget } from './contracts.js';
+import type { CapabilityAction, GssTaskContract, ObservationPack, TaskRisk, TaskTarget } from './contracts.js';
 
 export const INVESTIGATION_RUN_SCHEMA_VERSION = 'gss.investigation-run.v1' as const;
 export const EVIDENCE_FRONTIER_SCHEMA_VERSION = 'gss.evidence-frontier.v1' as const;
@@ -16,11 +16,13 @@ export interface InvestigationBudget {
   deadlineAt: string;
   maxExternalQueries: number;
   maxCostMicros: number;
+  requireKnownCost?: boolean;
 }
 
 export interface InvestigationUsage {
   externalQueries: number;
   costMicros: number;
+  costUnknown?: boolean;
 }
 
 export interface InvestigationRun {
@@ -35,6 +37,7 @@ export interface InvestigationRun {
   policyVersion: string;
   createdAt: string;
   updatedAt: string;
+  traceparent?: string;
 }
 
 export interface FactProvenance {
@@ -108,14 +111,17 @@ export interface ModelUsageRecord {
   model: string;
   reasoningEffort: string;
   routeReason: string;
-  inputTokens: number;
-  outputTokens: number;
-  cachedTokens: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cachedTokens: number | null;
+  cacheWriteTokens?: number | null;
   latencyMs: number;
   retryCount: number;
-  estimatedCostMicros: number;
+  estimatedCostMicros: number | null;
   status: 'SUCCEEDED' | 'FAILED';
   createdAt: string;
+  reservationId?: string;
+  invocationAttemptId?: string;
 }
 
 export interface ControlOutboxEvent {
@@ -154,6 +160,17 @@ export function canonicalJson(value: unknown): string {
 
 export function sha256Canonical(value: unknown): string {
   return createHash('sha256').update(canonicalJson(value)).digest('hex');
+}
+
+/** An intake dispatch is not a planner decision or fabricated frontier. */
+export function initialTaskDispatchEvent(task: GssTaskContract, runId?: string): ControlOutboxEvent {
+  const payload = { schemaVersion: 'gss.initial-dispatch.v1',
+    task: JSON.parse(JSON.stringify(task)), ...(runId ? { runId } : {}) };
+  const aggregateId = runId ?? task.caseId;
+  const eventType = 'TASK_DISPATCH_REQUESTED' as const;
+  const eventHash = sha256Canonical({ aggregateId, eventType, payload });
+  return { schemaVersion: CONTROL_OUTBOX_SCHEMA_VERSION, eventId: `INITIAL-${eventHash}`,
+    aggregateId, eventType, payload, eventHash, createdAt: task.createdAt };
 }
 
 export function actionFingerprint(action: ProposedAction): string {
@@ -294,6 +311,9 @@ export function planNextStep(input: PlanNextStepInput): NextStepDecision {
   }
   const now = input.now ?? new Date().toISOString();
   if (input.run.state !== 'ACTIVE') return blockedDecision(input, 'RUN_NOT_ACTIVE', 'The investigation run is not active.', now);
+  if(input.run.budget.requireKnownCost && input.run.usage.costUnknown) {
+    return blockedDecision(input,'COST_ACCOUNTING_UNKNOWN','Unknown model cost cannot authorize further automatic dispatch.',now);
+  }
   if (new Date(now).getTime() >= new Date(input.run.budget.deadlineAt).getTime()) {
     return blockedDecision(input, 'DEADLINE_EXHAUSTED', 'The investigation deadline was reached.', now);
   }
@@ -354,8 +374,8 @@ export function planNextStep(input: PlanNextStepInput): NextStepDecision {
   };
 }
 
-export function createControlOutboxEvent(decision: NextStepDecision, parentTaskId?: string): ControlOutboxEvent {
-  const payload = { decision, ...(parentTaskId ? { parentTaskId } : {}) };
+export function createControlOutboxEvent(decision: NextStepDecision, parentTaskId?: string, traceparent?: string): ControlOutboxEvent {
+  const payload = { decision, ...(parentTaskId ? { parentTaskId } : {}), ...(traceparent ? { traceparent } : {}) };
   const eventType = decision.kind === 'DISPATCH' ? 'TASK_DISPATCH_REQUESTED' : 'NEXT_STEP_DECIDED';
   const identity = { aggregateId: decision.runId, eventType, payload };
   const eventHash = sha256Canonical(identity);

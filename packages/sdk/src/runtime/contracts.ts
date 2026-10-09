@@ -38,6 +38,7 @@ export interface GssTaskContract {
   contextRefs: string[];
   timeoutMs: number;
   createdAt: string;
+  traceparent?: string;
 }
 
 export interface GssResultContract {

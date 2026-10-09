@@ -1,4 +1,19 @@
-# ASQ-Engine — Project Truth
+# ASQ-Engine - Project Truth
+
+## Current engineering checkpoint — 2026-10-09
+
+The September snapshot below is historical, not the current runtime status. Current evidence and GitHub checkpoint: [Codex roadmap report](GSS_ROADMAP_CHECKPOINT_2026-10-09_CODEX.md), [gitlog](GITLOG.md), [workload identity runbook](infra/identity/WORKLOAD_IDENTITY_CODEX.md).
+
+- PostgreSQL Control Plane is the durable state-transition authority; initial/follow-up transactional outbox, intake/result receipts, restart/replay handling, worker presence and bounded model reservations are implemented and tested locally.
+- Incident/task/evidence provenance, two-distinct-approver proposal boundary, Ed25519 task signing, OIDC/MFA API policy and mTLS SAN/leaf binding have local contract/integration coverage. This does **not** establish live IdP/staging PKI or successful deployment.
+- Migration 015 adds permanent certificate revocation tombstones + monotonically increasing revision + atomic audit. Command Center checks the authority on handshake, incoming frame, authorized send and periodic idle checks; file pin rollback cannot undo a persisted tombstone in authority-integrated mode.
+- Latest focused verification: 17 PostgreSQL/mTLS tests PASS; root/UI typecheck PASS. Full-source verification and exact final fingerprint belong to the dated report, not this narrative.
+- `proxy-addr` 2.0.8 closes the previously reported Critical; diagnostic full dependency audit is zero findings at this checkpoint. Local and CI gates now include development dependencies as well as production, with retained local audit logs.
+- Ctrl+Shift+B starts the local stack through `npm.cmd run dev`, requiring PostgreSQL and running migrations/build before service startup. Do not run generated source-adjacent JS or bypass authority to make startup green.
+- Release remains BLOCKED: Chronicle coordinates/ADC viewer identity and rootless Docker unavailable; live browser OIDC/MFA, workload PKI, Object Lock/OTLP, labeled routing eval, external security/CI and staging load/freeze evidence remain separate gates.
+- No remediation, SIEM writeback, automatic merge/deploy, dynamic enrollment or physical distributed cancellation is enabled. Deny-only certificate revocation is not dual-control certificate grant publication or protection against a PostgreSQL superuser/whole-database snapshot rollback.
+
+## Historical snapshot — 2026-09-18
 
 Cập nhật: 2026-09-18. Người thực hiện: Codex. Đây là trạng thái kỹ thuật hiện hành, thay cho các tuyên bố PASS/hoàn tất trong báo cáo phase cũ.
 

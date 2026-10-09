@@ -1,3 +1,4 @@
+import { controlPlaneFixture } from '../helpers/control-plane-fixture.ts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createHmac, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
@@ -201,7 +202,7 @@ describe('Real WebSocket authorization', () => {
 describe('Orchestrator over real sockets', () => {
   it('dispatches a signed task and correlates actual execution evidence to the incident', async () => {
     const store = new MemoryRuntimeStore();
-    const app = new CentralCommandOrchestrator(0, { routePrompt: async () => ({ agent: 'cli', action: 'inspect_hostname', instruction: 'hostname', parameters: {} }) }, signer, store);
+    const app = new CentralCommandOrchestrator(0, { routePrompt: async () => ({ agent: 'cli', action: 'inspect_hostname', instruction: 'hostname', parameters: {} }) }, signer, controlPlaneFixture(store));
     servers.push(app);
     const port = await app.ready();
     const worker = await connect(port, session('cli-worker-agent', 'CLI_DAEMON', ['REPORT']));
@@ -229,7 +230,7 @@ describe('Orchestrator over real sockets', () => {
   });
   it('returns a conversation response without fabricating an executor task', async () => {
     const store = new MemoryRuntimeStore();
-    const app = new CentralCommandOrchestrator(0, { routePrompt: async () => ({ agent: 'chat', instruction: 'How can I help with this case?' }) }, signer, store);
+    const app = new CentralCommandOrchestrator(0, { routePrompt: async () => ({ agent: 'chat', instruction: 'How can I help with this case?' }) }, signer, controlPlaneFixture(store));
     servers.push(app);
     const ws = await connect(await app.ready(), session('controller'));
     const chat = nextStatus(ws, 'CHAT');
@@ -240,7 +241,7 @@ describe('Orchestrator over real sockets', () => {
     expect(store.states).toContain('RESPONDING');
   });
   it('reports an offline worker instead of success', async () => {
-    const app = new CentralCommandOrchestrator(0, { routePrompt: async () => ({ agent: 'cli', instruction: 'hostname' }) }, signer);
+    const app = new CentralCommandOrchestrator(0, { routePrompt: async () => ({ agent: 'cli', instruction: 'hostname' }) }, signer, controlPlaneFixture());
     servers.push(app);
     const ws = await connect(await app.ready(), session('controller'));
     const status = nextStatus(ws, 'OFFLINE');
@@ -250,7 +251,7 @@ describe('Orchestrator over real sockets', () => {
   it('does not dispatch a model decision which finishes after kill-switch activation', async () => {
     let finish!: (v: any) => void;
     const routePrompt = vi.fn(() => new Promise<any>(resolve => { finish = resolve; }));
-    const app = new CentralCommandOrchestrator(0, { routePrompt }, signer); servers.push(app);
+    const app = new CentralCommandOrchestrator(0, { routePrompt }, signer, controlPlaneFixture()); servers.push(app);
     const port = await app.ready();
     const user = await connect(port, session('controller'));
     const worker = await connect(port, session('cli-worker-agent', 'CLI_DAEMON', ['REPORT']));

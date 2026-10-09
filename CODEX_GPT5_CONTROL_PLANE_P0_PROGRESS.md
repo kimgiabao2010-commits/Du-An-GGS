@@ -1,6 +1,8 @@
 # GSS — Control Plane P0 Progress
 
-Updated: 2026-09-29
+Updated: 2026-10-02
+
+Current closure evidence: [GSS_DAILY_CLOSURE_2026-10-02_CODEX.md](GSS_DAILY_CLOSURE_2026-10-02_CODEX.md). Earlier test counts below are historical, not the current final gate totals.
 
 ## Scope
 
@@ -58,12 +60,11 @@ P0 establishes the first durable Control Plane boundary for GSS. The service is 
 - Chronicle staging credentials, dataset, and external UDM Search verification are not configured.
 - Docker/gVisor sandbox hard gate cannot run because Docker is unavailable in this environment.
 - Artifact signing is implemented but remains `NOT RUN` against a real staging key until a protected Ed25519 key is provisioned.
-- Standalone WebSocket intake still contains compatibility logic and must be migrated to call the Control Plane exclusively in the next slice.
-- The direct persistence compatibility path remains only for standalone mode without `CONTROL_PLANE_URL`; the Ctrl+Shift+B stack uses the authority path.
+- Production identity, incident ACL, revocation and a verify-only worker authentication design remain outside the local demo boundary.
 
 ## Next implementation slice
 
-1. Add contract tests for remaining `200/201/403/404/409/422/503` semantics.
+1. Local HTTP semantics, immutable result replay and concurrency tests are implemented; enforce the same contracts in staging with real identities.
 2. Provision a protected staging signing key and distribute only its public verification key to workers.
 3. Run Chronicle staging and Docker sandbox hard gates when their external prerequisites are available.
 4. Add the OIDC provider, S3-compatible artifact backend and OTel collector required for staging.

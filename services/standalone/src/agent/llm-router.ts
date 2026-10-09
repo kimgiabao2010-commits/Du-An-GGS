@@ -1,6 +1,8 @@
 import { OpenAI } from 'openai';
 import { ContextBudgeter } from '@asq/guardrails';
-import type { CapabilityAction, TaskTarget } from '@asq/sdk';
+import { canonicalJson, sha256Canonical, type CapabilityAction, type TaskTarget, type ModelCallGate } from '@asq/sdk';
+import { randomUUID } from 'node:crypto';
+import { providerUsage } from './model-usage.js';
 
 export interface RouterDecision {
   agent: 'chat' | 'system' | TaskTarget;
@@ -11,13 +13,16 @@ export interface RouterDecision {
     model: string;
     reasoningEffort: string;
     routeReason: string;
-    inputTokens: number;
-    outputTokens: number;
-    cachedTokens: number;
+    inputTokens: number | null;
+    outputTokens: number | null;
+    cachedTokens: number | null;
+    cacheWriteTokens?: number | null;
     latencyMs: number;
     retryCount: number;
-    estimatedCostMicros: number;
+    estimatedCostMicros: number | null;
     status: 'SUCCEEDED' | 'FAILED';
+    reservationId?: string;
+    invocationAttemptId?: string;
   };
 }
 
@@ -45,7 +50,7 @@ function deterministicSiemIntent(prompt: string): RouterDecision | null {
 export class LlmRouter {
   private openai: OpenAI | null;
   private contextBudgeter = new ContextBudgeter({ maxTokens: Number(process.env.ASQ_CONTEXT_MAX_TOKENS ?? 4096) });
-  private modelName = process.env.ASQ_ROUTER_MODEL || (process.env.GROQ_API_KEY ? 'llama-3.3-70b-versatile' : 'gpt-5.6-luna');
+  private modelName = process.env.ASQ_ROUTER_MODEL || (!process.env.OPENAI_API_KEY && process.env.GROQ_API_KEY ? 'llama-3.3-70b-versatile' : 'gpt-5.6-sol');
 
   constructor() {
     const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
@@ -57,7 +62,7 @@ export class LlmRouter {
     }) : null;
   }
 
-  public async routePrompt(prompt: string): Promise<RouterDecision> {
+  public async routePrompt(prompt: string, gate?: ModelCallGate): Promise<RouterDecision> {
     const deterministic = deterministicIntents.find(intent => intent.patterns.some(pattern => pattern.test(prompt)));
     if (deterministic) return { agent: 'cli', action: deterministic.action, instruction: deterministic.instruction, parameters: {} };
     const siemIntent = deterministicSiemIntent(prompt);
@@ -69,12 +74,16 @@ export class LlmRouter {
     };
 
     const startedAt = Date.now();
+    let measuredUsage = providerUsage(undefined);
+    let reservationId: string | undefined;
+    let invocationAttemptId: string | undefined;
+    let providerStarted=false;
     try {
       const context = this.contextBudgeter.prepare(prompt);
       console.info(`[LlmRouter] Context ${context.inputTokenEstimate} -> ${context.outputTokenEstimate} tokens; ` +
         `pruned=${context.omittedCharacters} quarantined=${context.quarantinedFragments} redacted=${context.redactedSecrets}`);
 
-      const response = await this.openai.chat.completions.create({
+      const request = {
         model: this.modelName,
         messages: [
           {
@@ -140,21 +149,32 @@ CLI actions are read-only. IDE actions are analysis-only. High-risk actions are 
             },
           },
         ],
-        reasoning_effort: 'medium',
-        temperature: 0.2,
-        max_tokens: 1200,
-      });
+        ...(process.env.OPENAI_API_KEY ? { reasoning_effort: 'medium' as const, max_completion_tokens: 1200 }
+          : { temperature: 0.2, max_tokens: 1200 }),
+      } satisfies Parameters<typeof this.openai.chat.completions.create>[0];
+      if(!gate && (process.env.GSS_RUNTIME_ENV==='staging' || process.env.GSS_MODEL_BUDGET_POLICY_JSON?.trim())) {
+        return {agent:'system',instruction:'MODEL_BUDGET_BLOCKED: Durable reservation gate is required. No provider call was made.'};
+      }
+      if(gate) {
+        const receipt=await gate.reserve({provider:process.env.OPENAI_API_KEY?'openai':'groq',model:this.modelName,
+          requestHash:sha256Canonical(request),requestBytes:Buffer.byteLength(canonicalJson(request),'utf8'),maxOutputTokens:1200});
+        if(receipt.enabled) {
+          if(receipt.state!=='RESERVED') return {agent:'system',instruction:'MODEL_BUDGET_BLOCKED: Previous invocation cannot be safely repeated. No provider call was made.'};
+          reservationId=receipt.reservationId; invocationAttemptId=randomUUID();
+          if(!(await gate.start(reservationId,invocationAttemptId)).started) return {agent:'system',instruction:'MODEL_BUDGET_BLOCKED: Invocation already acquired. No provider call was made.'};
+        } else if(process.env.GSS_RUNTIME_ENV==='staging') {
+          return {agent:'system',instruction:'MODEL_BUDGET_BLOCKED: Staging requires an enabled reservation policy. No provider call was made.'};
+        }
+      }
+      providerStarted=true;
+      const response = await this.openai.chat.completions.create(request);
 
+      measuredUsage = providerUsage(response.usage);
       const message = response.choices[0]?.message;
-      const inputTokens = response.usage?.prompt_tokens ?? context.inputTokenEstimate;
-      const outputTokens = response.usage?.completion_tokens ?? 0;
-      const cachedTokens = response.usage?.prompt_tokens_details?.cached_tokens ?? 0;
-      const inputRate = Number(process.env.ASQ_MODEL_INPUT_COST_MICROS_PER_1K ?? 0);
-      const outputRate = Number(process.env.ASQ_MODEL_OUTPUT_COST_MICROS_PER_1K ?? 0);
       const modelUsage = {
         model: this.modelName, reasoningEffort: 'medium', routeReason: 'llm_intent_routing',
-        inputTokens, outputTokens, cachedTokens, latencyMs: Date.now() - startedAt, retryCount: 0,
-        estimatedCostMicros: Math.ceil((inputTokens / 1000) * inputRate + (outputTokens / 1000) * outputRate), status: 'SUCCEEDED' as const,
+        ...measuredUsage, latencyMs: Date.now() - startedAt, retryCount: 0, status: 'SUCCEEDED' as const,
+        ...(reservationId ? {reservationId,invocationAttemptId} : {}),
       };
       const toolCall = message?.tool_calls?.[0];
       if (toolCall?.type === 'function') {
@@ -180,11 +200,11 @@ CLI actions are read-only. IDE actions are analysis-only. High-risk actions are 
       }
       return { agent: 'chat', instruction: message?.content?.trim() || 'I need more context before I can continue safely.', modelUsage };
     } catch {
-      const inputRate = Number(process.env.ASQ_MODEL_INPUT_COST_MICROS_PER_1K ?? 0);
+      if(!providerStarted) return {agent:'system',instruction:'MODEL_BUDGET_BLOCKED: Request preparation or reservation failed safely. No provider call was made.'};
       return { agent: 'system', instruction: 'LLM_UNAVAILABLE: Routing failed safely. No worker task was dispatched.', modelUsage: {
-        model: this.modelName, reasoningEffort: 'medium', routeReason: 'llm_intent_routing', inputTokens: 0, outputTokens: 0,
-        cachedTokens: 0, latencyMs: Date.now() - startedAt, retryCount: 0,
-        estimatedCostMicros: inputRate > 0 ? Math.ceil(inputRate) : 0, status: 'FAILED',
+        model: this.modelName, reasoningEffort: 'medium', routeReason: 'llm_intent_routing', ...measuredUsage,
+        latencyMs: Date.now() - startedAt, retryCount: 0, status: 'FAILED',
+        ...(reservationId ? {reservationId,invocationAttemptId} : {}),
       } };
     }
   }

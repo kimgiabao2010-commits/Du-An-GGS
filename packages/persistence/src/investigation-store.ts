@@ -67,7 +67,8 @@ export class PostgresInvestigationStore {
   public async createApproval(input: ApprovalRequestInput): Promise<string> {
     if (!/^[a-f0-9]{64}$/i.test(input.artifactHash)) throw new Error('artifactHash must be a SHA-256 hex digest');
     if (!input.incidentId || !input.requestedBy || !input.policyVersion) throw new Error('approval identity and policy are required');
-    if (input.expiresAt.getTime() <= Date.now()) throw new Error('approval expiry must be in the future');
+    if (!['CREATE_GITOPS_PR','DEPLOY_CANARY','ROLLBACK'].includes(input.action)) throw Object.assign(new Error('approval action is not allowlisted'), { statusCode: 403 });
+    if (!Number.isFinite(input.expiresAt.getTime()) || input.expiresAt.getTime() <= Date.now()) throw Object.assign(new Error('approval expiry must be in the future'), { statusCode: 422 });
     canonicalJson(input.parameters);
     const parametersHash = sha256Canonical(input.parameters);
     const requestHash = sha256Canonical({ action: input.action, artifactHash: input.artifactHash.toLowerCase(),
@@ -75,6 +76,8 @@ export class PostgresInvestigationStore {
       policyVersion: input.policyVersion, requestedBy: input.requestedBy });
     const id = `APR-${requestHash.slice(0, 32)}`;
     return this.transaction(async client => {
+      await client.query(`INSERT INTO incidents(incident_id,status)
+        SELECT case_id,'PENDING_APPROVAL' FROM cases WHERE case_id=$1 ON CONFLICT DO NOTHING`, [input.incidentId]);
       await client.query(`INSERT INTO approval_requests
         (approval_id, incident_id, action, artifact_hash, requested_by, expires_at, payload,
          canonical_parameters, parameters_hash, policy_version, request_hash)
@@ -93,16 +96,12 @@ export class PostgresInvestigationStore {
   }
 
   public async approve(approvalId: string, approvedBy: string, artifactHash: string): Promise<ApprovalDecision> {
+    if (!approvedBy?.trim() || !/^[a-f0-9]{64}$/i.test(artifactHash)) throw Object.assign(new Error('valid approver and artifact hash required'), { statusCode: 422 });
     return this.transaction(async client => {
       const found = await client.query<{ incident_id: string; requested_by: string; artifact_hash: string; expires_at: Date; status: string }>(
         'SELECT incident_id, requested_by, artifact_hash, expires_at, status FROM approval_requests WHERE approval_id = $1 FOR UPDATE', [approvalId]);
       const request = found.rows[0];
       if (!request) return { status: 'NOT_FOUND' };
-      if (request.status === 'APPROVED_FOR_PROPOSAL') {
-        const count = await client.query<{ count: string }>('SELECT count(*) FROM approval_approvals WHERE approval_id = $1', [approvalId]);
-        return { status: 'APPROVED_FOR_PROPOSAL', approvalCount: Number(count.rows[0]?.count ?? 2) };
-      }
-      if (request.status !== 'PENDING') return { status: request.status === 'EXPIRED' ? 'EXPIRED' : 'INVALID_STATE' };
       if (request.expires_at.getTime() <= Date.now()) {
         await client.query("UPDATE approval_requests SET status = 'EXPIRED' WHERE approval_id = $1", [approvalId]);
         await this.audit(client, approvedBy, request.incident_id, 'APPROVAL_DENIED', { approvalId, reason: 'EXPIRED' });
@@ -116,6 +115,11 @@ export class PostgresInvestigationStore {
         await this.audit(client, approvedBy, request.incident_id, 'APPROVAL_DENIED', { approvalId, reason: 'REQUESTER_CANNOT_APPROVE' });
         return { status: 'REQUESTER_CANNOT_APPROVE' };
       }
+      if (request.status === 'APPROVED_FOR_PROPOSAL') {
+        const count = await client.query<{ count: string }>('SELECT count(*) FROM approval_approvals WHERE approval_id = $1', [approvalId]);
+        return { status: 'APPROVED_FOR_PROPOSAL', approvalCount: Number(count.rows[0]?.count ?? 0) };
+      }
+      if (request.status !== 'PENDING') return { status: request.status === 'EXPIRED' ? 'EXPIRED' : 'INVALID_STATE' };
       await client.query('INSERT INTO approval_approvals (approval_id, approved_by) VALUES ($1,$2) ON CONFLICT DO NOTHING', [approvalId, approvedBy]);
       const count = await client.query<{ count: string }>('SELECT count(*) FROM approval_approvals WHERE approval_id = $1', [approvalId]);
       const approvalCount = Number(count.rows[0]?.count ?? 0);

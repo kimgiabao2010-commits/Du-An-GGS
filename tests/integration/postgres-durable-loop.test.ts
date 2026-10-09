@@ -19,6 +19,21 @@ beforeAll(async () => {
 afterAll(async () => { await store?.close(); });
 
 describe.skipIf(!enabled)('PostgreSQL durable investigation loop', () => {
+  it('stores unknown usage as NULL, with UNKNOWN cost status, not zero', async () => {
+    if (!store || !pool) throw new Error('PostgreSQL unavailable');
+    const suffix = randomUUID(); const caseId = `usage-${suffix}`;
+    await store.ensureCase(caseId,'ci');
+    const run=await store.ensureInvestigationRun(caseId,'ci');
+    const input = { schemaVersion:'gss.model-usage.v1' as const,usageId:suffix,caseId,traceId:'fixture-trace',
+      model:'gpt-5.6-sol',reasoningEffort:'medium',routeReason:'fixture',inputTokens:null,outputTokens:null,cachedTokens:null,
+      cacheWriteTokens:null,latencyMs:1,retryCount:0,estimatedCostMicros:null,status:'FAILED' as const,createdAt:new Date().toISOString() };
+    expect(await store.recordModelUsage(input)).toEqual({created:true});
+    expect(await store.recordModelUsage(input)).toEqual({created:false});
+    await expect(store.recordModelUsage({...input,outputTokens:1})).rejects.toThrow('model_usage_id_payload_mismatch');
+    expect((await store.getInvestigationRun(run.runId))?.usage.costUnknown).toBe(true);
+    const row = (await pool.query('SELECT input_tokens,output_tokens,cached_tokens,estimated_cost_micros,cost_status FROM model_usage WHERE usage_id=$1',[suffix])).rows[0];
+    expect(row).toEqual({input_tokens:null,output_tokens:null,cached_tokens:null,estimated_cost_micros:null,cost_status:'UNKNOWN'});
+  });
   it('persists idempotent task creation, frontier, decision and outbox atomically', async () => {
     if (!store || !pool) throw new Error('PostgreSQL test store was not initialized');
     const suffix = randomUUID();
@@ -55,6 +70,8 @@ describe.skipIf(!enabled)('PostgreSQL durable investigation loop', () => {
     await expect(artifacts.register({ ...artifactInput, ref: `${artifactInput.ref}.mutated` }))
       .rejects.toThrow(/conflicts with immutable metadata/);
     expect(await artifacts.exists(caseId, task.taskId, artifactInput.sha256)).toBe(true);
+    await expect(pool.query('UPDATE artifact_registry SET storage_ref=$1 WHERE case_id=$2',[artifactInput.ref+'.changed',caseId]))
+      .rejects.toThrow('artifact_metadata_immutable');
 
     const committed = await store.recordResult(result, observation, {
       runId: run.runId, source: 'cli', proposal,
@@ -72,6 +89,6 @@ describe.skipIf(!enabled)('PostgreSQL durable investigation loop', () => {
         (SELECT count(*) FROM evidence_frontiers WHERE run_id=$1)::text AS frontiers,
         (SELECT count(*) FROM next_step_decisions WHERE run_id=$1)::text AS decisions,
         (SELECT count(*) FROM control_outbox WHERE aggregate_id=$1)::text AS outbox`, [run.runId]);
-    expect(counts.rows[0]).toEqual({ frontiers: '1', decisions: '1', outbox: '1' });
+    expect(counts.rows[0]).toEqual({ frontiers: '1', decisions: '1', outbox: '2' });
   });
 });

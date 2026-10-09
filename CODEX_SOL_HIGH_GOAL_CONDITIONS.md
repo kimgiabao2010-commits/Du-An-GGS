@@ -2,6 +2,8 @@
 
 Date: 2026-09-27
 
+> Historical planning snapshot. Current verification as of 2026-10-02 is recorded in [GSS_DAILY_CLOSURE_2026-10-02_CODEX.md](GSS_DAILY_CLOSURE_2026-10-02_CODEX.md). The statuses below describe the original baseline, not today's repository. No readiness percentage is being declared.
+
 ## Quy tắc đánh giá
 
 GSS không được công bố phần trăm readiness dựa trên cảm nhận. Một goal chỉ đạt khi toàn bộ điều kiện con có bằng chứng trực tiếp và được gắn một trong bốn trạng thái:

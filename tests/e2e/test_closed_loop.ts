@@ -40,7 +40,7 @@ async function runClosedLoopSmokeTest(): Promise<void> {
   assert.equal(redTeamResult.passed, true);
 
   const blastRadius = new BlastRadiusAssessmentEngine().calculateRiskScore(['infra/aws.tf']);
-  assert.equal(blastRadius.isSafeForAutoDeploy, true);
+  assert.equal(blastRadius.isSafeForAutoDeploy, false);
   assert.ok(blastRadius.score <= 30);
 
   console.log('Component smoke test passed. This does not verify SIEM, deployment, or sandbox integration.');

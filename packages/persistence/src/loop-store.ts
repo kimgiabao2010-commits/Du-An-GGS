@@ -5,6 +5,7 @@ import {
   planNextStep,
   reduceEvidenceFrontier,
   sha256Canonical,
+  modelUsagePayloadHash,
   type ControlOutboxEvent,
   type EvidenceFrontier,
   type InvestigationBudget,
@@ -15,6 +16,7 @@ import {
   type NextStepProposal,
   type ObservationPack,
 } from '@asq/sdk';
+import { settleModelReservation } from './model-budget-store.js';
 
 export interface CreateInvestigationRunInput {
   caseId: string;
@@ -25,6 +27,7 @@ export interface CreateInvestigationRunInput {
 }
 
 export interface CommitObservationInput {
+  traceparent?: string;
   runId: string;
   observation: ObservationPack;
   source: string;
@@ -47,6 +50,7 @@ export interface ClaimedOutboxEvent {
 }
 
 interface RunRow {
+  traceparent?: string;
   run_id: string;
   case_id: string;
   state: InvestigationRunState;
@@ -58,6 +62,7 @@ interface RunRow {
   max_external_queries: number;
   cost_micros_used: string | number;
   max_cost_micros: string | number;
+  cost_accounting_unknown?: boolean;
   policy_version: string;
   created_at: Date | string;
   updated_at: Date | string;
@@ -74,6 +79,7 @@ function integer(value: number, name: string, minimum: number, maximum = Number.
 
 function mapRun(row: RunRow): InvestigationRun {
   return {
+    ...(row.traceparent ? { traceparent: row.traceparent } : {}),
     schemaVersion: INVESTIGATION_RUN_SCHEMA_VERSION,
     runId: row.run_id,
     caseId: row.case_id,
@@ -85,10 +91,12 @@ function mapRun(row: RunRow): InvestigationRun {
       deadlineAt: iso(row.deadline_at),
       maxExternalQueries: Number(row.max_external_queries),
       maxCostMicros: Number(row.max_cost_micros),
+      requireKnownCost:process.env.GSS_RUNTIME_ENV==='staging' || process.env.GSS_ENFORCE_COST_ACCOUNTING==='true',
     },
     usage: {
       externalQueries: Number(row.external_queries_used),
       costMicros: Number(row.cost_micros_used),
+      costUnknown:row.cost_accounting_unknown ?? false,
     },
     policyVersion: row.policy_version,
     createdAt: iso(row.created_at),
@@ -147,7 +155,7 @@ export async function commitObservationAndDecisionWithClient(
     previousActionFingerprints: previousActions.rows.map(item => item.fingerprint).filter(Boolean),
     now,
   });
-  const outbox = createControlOutboxEvent(decision, input.observation.taskId);
+  const outbox = createControlOutboxEvent(decision, input.observation.taskId, input.traceparent);
   const frontierHash = sha256Canonical(frontier);
   const decisionHash = sha256Canonical(decision);
 
@@ -198,7 +206,7 @@ export class PostgresInvestigationLoopStore {
   public async ready(): Promise<void> { await this.pool.query('SELECT 1'); }
   public async close(): Promise<void> { await this.pool.end(); }
 
-  public async ensureRun(input: CreateInvestigationRunInput): Promise<InvestigationRun> {
+  public async ensureRun(input: CreateInvestigationRunInput, client?: PoolClient): Promise<InvestigationRun> {
     const now = input.now ?? new Date().toISOString();
     const deadlineAt = input.budget?.deadlineAt ?? new Date(new Date(now).getTime() + 30 * 60_000).toISOString();
     if (new Date(deadlineAt).getTime() <= new Date(now).getTime()) throw new Error('Investigation deadline must be in the future');
@@ -207,7 +215,7 @@ export class PostgresInvestigationLoopStore {
     const maxCostMicros = integer(input.budget?.maxCostMicros ?? 5_000_000, 'maxCostMicros', 0);
     const policyVersion = input.policyVersion ?? 'gss.deterministic-planner.v1';
     const runId = `RUN-${sha256Canonical({ caseId: input.caseId, policyVersion }).slice(0, 32)}`;
-    const result = await this.pool.query<RunRow>(`INSERT INTO investigation_runs
+    const result = await (client ?? this.pool).query<RunRow>(`INSERT INTO investigation_runs
       (run_id,case_id,state,max_depth,deadline_at,max_external_queries,max_cost_micros,policy_version,requested_by,created_at,updated_at)
       VALUES ($1,$2,'ACTIVE',$3,$4,$5,$6,$7,$8,$9,$9)
       ON CONFLICT (run_id) DO UPDATE SET updated_at = investigation_runs.updated_at
@@ -243,32 +251,53 @@ export class PostgresInvestigationLoopStore {
     for (const [name, value] of Object.entries({
       inputTokens: record.inputTokens, outputTokens: record.outputTokens, cachedTokens: record.cachedTokens,
       latencyMs: record.latencyMs, retryCount: record.retryCount, estimatedCostMicros: record.estimatedCostMicros,
-    })) integer(value, name, 0);
-    const result = await this.pool.query<{ inserted: boolean }>(`INSERT INTO model_usage
+      cacheWriteTokens: record.cacheWriteTokens ?? null,
+    })) {
+      if (value === null && !['latencyMs','retryCount'].includes(name)) continue;
+      integer(value as number, name, 0);
+    }
+    const payloadHash=modelUsagePayloadHash(record);
+    return this.transaction(async client=>{
+    await settleModelReservation(client,record);
+    const result = await client.query<{ inserted: boolean }>(`INSERT INTO model_usage
       (usage_id,case_id,task_id,trace_id,model,reasoning_effort,route_reason,input_tokens,output_tokens,cached_tokens,
-       latency_ms,retry_count,estimated_cost_micros,status,created_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       latency_ms,retry_count,estimated_cost_micros,status,created_at,cache_write_tokens,payload_hash,reservation_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
       ON CONFLICT (usage_id) DO NOTHING RETURNING true AS inserted`,
       [record.usageId, record.caseId, record.taskId ?? null, record.traceId, record.model, record.reasoningEffort,
         record.routeReason, record.inputTokens, record.outputTokens, record.cachedTokens, record.latencyMs,
-        record.retryCount, record.estimatedCostMicros, record.status, record.createdAt]);
-    return { created: result.rows[0]?.inserted ?? false };
+        record.retryCount, record.estimatedCostMicros, record.status, record.createdAt, record.cacheWriteTokens ?? null,payloadHash,record.reservationId ?? null]);
+    const created=result.rows[0]?.inserted ?? false;
+    if(!created) {
+      const previous=await client.query('SELECT payload_hash FROM model_usage WHERE usage_id=$1',[record.usageId]);
+      if(previous.rows[0]?.payload_hash!==payloadHash) throw Object.assign(new Error('model_usage_id_payload_mismatch'),{statusCode:409});
+    } else {
+      await client.query(`UPDATE investigation_runs SET cost_micros_used=cost_micros_used+COALESCE($2::bigint,0),
+        cost_accounting_unknown=cost_accounting_unknown OR $2::bigint IS NULL,row_version=row_version+1 WHERE case_id=$1 AND state='ACTIVE'`,
+        [record.caseId,record.estimatedCostMicros]);
+    }
+    return {created};
+    });
   }
 
-  public async claimOutbox(workerId: string, limit = 25, lockTtlMs = 60_000): Promise<ClaimedOutboxEvent[]> {
+  public async claimOutbox(workerId: string, limit = 25, lockTtlMs = 60_000,
+    kind: 'decision' | 'initial' = 'decision', eventIds?: string[]): Promise<ClaimedOutboxEvent[]> {
     integer(limit, 'limit', 1, 100);
     integer(lockTtlMs, 'lockTtlMs', 1_000, 600_000);
     const result = await this.pool.query<{ payload: Record<string, unknown>; event_id: string; aggregate_id: string;
       event_type: ControlOutboxEvent['eventType']; event_hash: string; created_at: Date | string; attempts: number }>(`WITH candidates AS (
         SELECT event_id FROM control_outbox
         WHERE published_at IS NULL AND event_type = 'TASK_DISPATCH_REQUESTED' AND next_attempt_at <= now()
+          AND ($5::text[] IS NULL OR event_id=ANY($5))
+          AND CASE WHEN $4 = 'initial' THEN payload->>'schemaVersion' = 'gss.initial-dispatch.v1'
+            ELSE COALESCE(payload->>'schemaVersion', '') <> 'gss.initial-dispatch.v1' END
           AND (locked_at IS NULL OR locked_at < now() - ($3 * interval '1 millisecond'))
         ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT $2
       )
       UPDATE control_outbox o SET locked_by=$1, locked_at=now(), attempts=o.attempts+1
       FROM candidates c WHERE o.event_id=c.event_id
       RETURNING o.event_id,o.aggregate_id,o.event_type,o.payload,o.event_hash,o.created_at,o.attempts`,
-      [workerId, limit, lockTtlMs]);
+      [workerId, limit, lockTtlMs, kind, eventIds ?? null]);
     return result.rows.map(row => ({
       attempts: row.attempts,
       event: {

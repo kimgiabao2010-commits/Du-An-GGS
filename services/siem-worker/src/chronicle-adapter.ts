@@ -24,6 +24,15 @@ export class SiemAdapterError extends Error {
 type FetchLike = typeof fetch;
 type TokenProvider = () => Promise<string>;
 
+function abortable<T>(promise:Promise<T>,signal:AbortSignal):Promise<T> {
+  return new Promise((resolve,reject)=>{
+    const abort=()=>reject(Object.assign(new Error('Chronicle bounded request aborted'),{name:'AbortError'}));
+    if(signal.aborted) { abort(); return; }
+    signal.addEventListener('abort',abort,{once:true});
+    promise.then(resolve,reject).finally(()=>signal.removeEventListener('abort',abort));
+  });
+}
+
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new SiemAdapterError('UNCONFIGURED', `${name} is required`);
@@ -148,7 +157,18 @@ export class ChronicleAdapter implements SiemAdapter {
     });
   }
 
-  async investigate(request: InvestigationRequest): Promise<InvestigationEvidence> {
+  async investigate(request: InvestigationRequest,signal?:AbortSignal): Promise<InvestigationEvidence> {
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),this.config.timeoutMs);
+    const boundedSignal=signal ? AbortSignal.any([controller.signal,signal]) : controller.signal;
+    try { return await this.search(request,boundedSignal); }
+    catch(error) {
+      if ((error as Error).name==='AbortError') throw new SiemAdapterError('UPSTREAM_TIMEOUT','Chronicle bounded request cancelled or timed out');
+      throw error;
+    } finally { clearTimeout(timeout); }
+  }
+
+  private async search(request: InvestigationRequest,signal:AbortSignal): Promise<InvestigationEvidence> {
     const start = new Date(request.timeRange.start);
     const end = new Date(request.timeRange.end);
     if (!Number.isFinite(start.valueOf()) || !Number.isFinite(end.valueOf()) || start >= end ||
@@ -170,21 +190,19 @@ export class ChronicleAdapter implements SiemAdapter {
 
     let response: Response | undefined;
     for (let attempt = 0; attempt < 2; attempt++) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
       try {
-        response = await this.fetchImpl(url, {
-          method: 'GET', signal: controller.signal,
-          headers: { authorization: `Bearer ${await this.tokenProvider()}`, accept: 'application/json' },
-        });
+        response = await abortable(this.fetchImpl(url, {
+          method: 'GET', signal,
+          headers: { authorization: `Bearer ${await abortable(this.tokenProvider(),signal)}`, accept: 'application/json' },
+        }),signal);
       } catch (error) {
         if (error instanceof SiemAdapterError) throw error;
         if ((error as Error).name === 'AbortError') throw new SiemAdapterError('UPSTREAM_TIMEOUT', 'Chronicle UDM Search timed out');
         throw new SiemAdapterError('UPSTREAM_FAILURE', 'Chronicle UDM Search was unavailable');
-      } finally { clearTimeout(timeout); }
+      }
       if (response.status !== 429 || attempt === 1) break;
       const retryAfter = Math.min(Number(response.headers.get('retry-after') ?? 0), 2);
-      if (retryAfter > 0) await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+      if (retryAfter > 0) await abortable(new Promise(resolve => setTimeout(resolve, retryAfter * 1000)),signal);
     }
     if (!response) throw new SiemAdapterError('UPSTREAM_FAILURE', 'Chronicle returned no response');
     if (response.status === 401 || response.status === 403) throw new SiemAdapterError('AUTH_DENIED', 'Chronicle rejected the read-only identity');
@@ -193,9 +211,21 @@ export class ChronicleAdapter implements SiemAdapter {
     if (!response.ok) throw new SiemAdapterError('UPSTREAM_FAILURE', `Chronicle returned HTTP ${response.status}`);
 
     let body: { events?: unknown[]; moreDataAvailable?: boolean };
-    try { body = await response.json() as typeof body; }
-    catch { throw new SiemAdapterError('UPSTREAM_FAILURE', 'Chronicle returned malformed JSON'); }
-    const events = (Array.isArray(body.events) ? body.events : []).map(allowlistEvent);
+    try {
+      const reader=response.body?.getReader();if(!reader) throw new Error('Missing Chronicle response body');
+      const chunks:Uint8Array[]=[];let bytes=0;
+      try {
+        while(true) { const {done,value}=await abortable(reader.read(),signal);if(done)break;
+          bytes+=value.byteLength;if(bytes>2_000_000) { await reader.cancel();throw new Error('Chronicle response limit'); }chunks.push(value);
+        }
+      } finally { reader.releaseLock(); }
+      body=JSON.parse(Buffer.concat(chunks).toString('utf8')) as typeof body;
+      if (!body || typeof body !== 'object' || body.events !== undefined && !Array.isArray(body.events)) throw new Error('Invalid event list');
+    } catch(error) {
+      if((error as Error).name==='AbortError') throw error;
+      throw new SiemAdapterError('UPSTREAM_FAILURE', 'Chronicle returned malformed or oversized JSON');
+    }
+    const events = (Array.isArray(body.events) ? body.events : []).slice(0,limit).map(allowlistEvent);
     return {
       evidenceId: `EVD-${randomUUID()}`,
       incidentId: request.incidentId,
@@ -205,7 +235,7 @@ export class ChronicleAdapter implements SiemAdapter {
       provenance: {
         adapter: 'google-chronicle', adapterVersion: 'v1', queryHash,
         sourceInstance: instancePath, queriedAt: new Date().toISOString(), timeRange: request.timeRange,
-        resultCount: events.length, truncated: Boolean(body.moreDataAvailable), redaction: 'ALLOWLISTED_FIELDS_ONLY',
+        resultCount: events.length, truncated: Boolean(body.moreDataAvailable) || (body.events?.length ?? 0)>limit, redaction: 'ALLOWLISTED_FIELDS_ONLY',
       },
     };
   }

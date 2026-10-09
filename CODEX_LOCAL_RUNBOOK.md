@@ -1,4 +1,20 @@
-# ASQ local runbook — Codex
+# ASQ local runbook - Codex
+
+## Current quick start — 2026-10-09
+
+The instructions below this section are an older September snapshot. Current default VS Code task is **GSS: Run local stack** (`Ctrl+Shift+B` → `npm.cmd run dev`), with Control Plane, Command Center, CLI/IDE workers and Web UI; Chronicle worker remains disabled until its required coordinates exist.
+
+1. Preserve your existing `.env`. Set a working PostgreSQL `DATABASE_URL`; keep credentials out of Git and browser bundles.
+2. Press Ctrl+Shift+B. The launcher applies checksum-protected migrations (including 015), builds runtime workspaces/UI, then starts the services. Migration failure stops startup. For manual starts, apply migrations first; `/readyz` fails closed if required tables are missing.
+3. Use the local URL and credentials printed in your own terminal. Local demo credentials are loopback-only, not staging identity. Do not share terminal output.
+4. Stop the stack with Ctrl+C in its dedicated terminal. A durable halt does **not** disappear after restart; investigate/reconcile before any explicit recovery. Restart is not an automatic un-halt or task reexecution.
+5. For verification, run `npm.cmd run verify:local`; it uses isolated PostgreSQL test schemas and records fingerprints/log hashes. Local test fixtures do not verify Chronicle, deployment, live IdP, Docker adversarial isolation or other staging gates.
+
+For mTLS, configure separate per-service certificate/key paths and exact workload policy; see [identity runbook](infra/identity/WORKLOAD_IDENTITY_CODEX.md). Staging requires durable revocation authority. Local mTLS may require it explicitly with `GSS_REQUIRE_DURABLE_WORKLOAD_REVOCATION=true`; do not toggle off a required authority to bypass a revoked certificate. Emergency revoke is SECURITY_ADMIN deny-only with atomic audit; issue a fresh leaf/key instead of trying to un-revoke.
+
+Current evidence/status: [roadmap checkpoint](GSS_ROADMAP_CHECKPOINT_2026-10-09_CODEX.md). Do not interpret the historical memory-only/persistence or worker BLOCKED statements below as today's feature inventory.
+
+## Historical runbook — September 2026
 
 Chỉ dành cho máy phát triển được phép. Không mở cổng ra Internet. Dữ liệu trên dashboard có phần mô phỏng; hệ thống chưa hỗ trợ production login/deployment.
 

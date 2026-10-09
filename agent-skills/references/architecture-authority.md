@@ -31,10 +31,12 @@ Read this reference when a task spans multiple GSS components, when a document c
 | M2 | One bounded executor | CLI read-only slice implemented |
 | M3 | Real SIEM read path | Adapter implemented; staging E2E externally blocked until configured |
 | M4 | Context/evidence persistence | ObservationPack, artifact and PostgreSQL foundations implemented |
-| M5 | IDE read-only investigation | Local WebSocket/artifact/ObservationPack slice implemented; live PostgreSQL E2E blocked until configured |
-| M6 | Automatic evidence-driven next step | Not implemented |
-| M7 | Durable approval in runtime | Store exists; full runtime integration incomplete |
-| M8 | Model routing and cost evaluation | Basic router exists; ledger/evals incomplete |
+| M5 | IDE read-only investigation | Local WebSocket/artifact/ObservationPack slice verified; IDE-specific live PostgreSQL E2E not independently established |
+| M6 | Automatic evidence-driven next step | Local four-step HTTP/WebSocket/PostgreSQL loop and outbox restart verified with labeled worker fixtures; not Chronicle staging |
+| M7 | Durable approval in runtime | PostgreSQL-backed API and local Approval Desk implemented; staging browser OIDC and proposal execution remain blocked |
+| M8 | Model routing and cost evaluation | Provider-only nullable accounting and offline comparison harness implemented; live provider reconciliation and labeled SOC corpus remain unverified |
+
+Status update: 2026-10-03. See `GSS_REMAINING_TASKS_ADVANCEMENT_2026-10-03_CODEX.md` for current work and verification evidence. Durable intake, pg-boss-backed acquisition, persisted halt and task-acceptance ACK are implemented locally. Task watchdog recovers uncertain execution as failure, not fabricated evidence or automatic re-execution. RESULT_ACK is distinct from acceptance ACK. Exactly-once physical execution and distributed fleet recovery are not claimed. Ed25519 verify-only task authorization, OIDC/MFA API policy, mTLS transport, S3 retention and OTLP adapters have local/fixture coverage, not staging certification. Source authority and the sole Control Plane writer remain enforced. External prerequisites and unfinished implementation are listed explicitly in the current report.
 
 ## Claim discipline
 

@@ -10,3 +10,9 @@ node_modules/
 **/.next-production/
 **/dist/
 *.tsbuildinfo
+test-results/
+playwright-report/
+
+# Local operational artifacts and unacknowledged worker results are private runtime data.
+/data/
+**/worker-spool/

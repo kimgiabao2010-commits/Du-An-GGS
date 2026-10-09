@@ -53,8 +53,10 @@ describe.skipIf(!enabled)('PostgreSQL concurrent load and restart recovery', () 
         expect((await restarted.getInvestigationRun(item.runId))?.caseId).toBe(item.caseId);
         expect((await restarted.getEvidenceFrontier(item.runId))?.version).toBe(1);
         const replay = await restarted.recordResult(item.result, item.observation, { runId: item.runId, source: 'cli',
-          proposal: { kind: 'FINALIZE', reasonCode: 'REPLAY_MUST_NOT_WIN', rationale: 'replay' } });
+          proposal: { kind: 'FINALIZE', reasonCode: 'LOAD_TEST_COMPLETE', rationale: 'bounded load verification' } });
         expect(replay && 'created' in replay && replay.created).toBe(false);
+        await expect(restarted.recordResult(item.result, item.observation, { runId: item.runId, source: 'cli',
+          proposal: { kind: 'FINALIZE', reasonCode: 'ALTERED', rationale: 'must not overwrite' } })).rejects.toMatchObject({ statusCode: 409 });
       }
     } finally { await restarted.close(); }
 

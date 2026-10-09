@@ -120,4 +120,10 @@ describe('M6 investigation loop contracts', () => {
     expect(decision.kind).toBe('BLOCKED');
     expect(decision.reasonCode).toBe('DEPTH_EXHAUSTED');
   });
+  it('blocks unknown cost when authoritative policy requires priced usage',()=>{
+    const frontier=reduceEvidenceFrontier({runId:'run-1',caseId:'case-1',observation:observation(),source:'ide',now});
+    const current=run();current.budget.requireKnownCost=true;current.usage.costUnknown=true;
+    expect(planNextStep({run:current,frontier,now,proposal:{kind:'FINALIZE',reasonCode:'DONE',rationale:'fixture'}}).reasonCode)
+      .toBe('COST_ACCOUNTING_UNKNOWN');
+  });
 });

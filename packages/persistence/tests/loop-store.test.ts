@@ -83,7 +83,7 @@ describe('PostgreSQL investigation loop transaction', () => {
   });
 
   it('defines all durable M6 tables, idempotency constraints and outbox lease fields', async () => {
-    const migration = await readFile(resolve('../../infra/postgres/migrations/003_investigation_loop.sql'), 'utf8');
+    const migration = await readFile(new URL('../../../infra/postgres/migrations/003_investigation_loop.sql',import.meta.url), 'utf8');
     for (const table of ['investigation_runs', 'evidence_frontiers', 'next_step_decisions', 'control_outbox', 'model_usage']) {
       expect(migration).toContain(`CREATE TABLE IF NOT EXISTS ${table}`);
     }
@@ -94,7 +94,7 @@ describe('PostgreSQL investigation loop transaction', () => {
   });
 
   it('defines immutable durable artifact metadata', async () => {
-    const migration = await readFile(resolve('../../infra/postgres/migrations/005_artifact_registry.sql'), 'utf8');
+    const migration = await readFile(new URL('../../../infra/postgres/migrations/005_artifact_registry.sql',import.meta.url), 'utf8');
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS artifact_registry');
     expect(migration).toContain('UNIQUE (case_id, task_id, sha256)');
     expect(migration).toContain("storage_provider IN ('filesystem', 's3')");

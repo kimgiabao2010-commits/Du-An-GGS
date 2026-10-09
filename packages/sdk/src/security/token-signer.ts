@@ -9,6 +9,7 @@ export interface TokenPayload {
     taskId?: string;
     incidentId?: string;
     instructionHash?: string;
+    taskHash?: string;
 }
 
 export class TokenSigner {

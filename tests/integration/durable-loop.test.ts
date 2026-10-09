@@ -1,3 +1,4 @@
+import { controlPlaneFixture } from '../helpers/control-plane-fixture.ts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -150,7 +151,7 @@ describe('durable evidence-driven runtime loop', () => {
     roots.push(root);
     const store = new DurableMemoryStore();
     const router = { routePrompt: async () => ({ agent: 'cli', action: 'inspect_hostname' as const, instruction: 'hostname', parameters: {} }) };
-    const app = new CentralCommandOrchestrator(0, router, signer, store, new FilesystemArtifactStore(root));
+    const app = new CentralCommandOrchestrator(0, router, signer, controlPlaneFixture(store), new FilesystemArtifactStore(root));
     servers.push(app);
     const port = await app.ready();
     const worker = await connect(port, 'cli-worker-agent', 'CLI_DAEMON', ['REPORT']);
@@ -181,7 +182,7 @@ describe('durable evidence-driven runtime loop', () => {
     expect(store.results).toHaveLength(4);
     expect(store.frontier?.version).toBe(4);
     expect(store.frontier?.facts).toHaveLength(4);
-    expect(store.publishedEvents).toHaveLength(3);
+    expect(store.publishedEvents).toHaveLength(4);
     expect(store.states).toContain('COLLECTING_EVIDENCE');
     expect(store.states.at(-1)).toBe('ANALYZING');
   });
@@ -207,7 +208,7 @@ describe('durable evidence-driven runtime loop', () => {
     const store = new RecoverableMemoryStore({
       created: false, run, frontier, decision, outbox: createControlOutboxEvent(decision, 'task-before-restart'),
     });
-    const app = new CentralCommandOrchestrator(0, { routePrompt: async () => ({ agent: 'chat', instruction: 'unused' }) }, signer, store);
+    const app = new CentralCommandOrchestrator(0, { routePrompt: async () => ({ agent: 'chat', instruction: 'unused' }) }, signer, controlPlaneFixture(store));
     servers.push(app);
     const port = await app.ready();
     const worker = await connect(port, 'cli-worker-agent', 'CLI_DAEMON', ['REPORT']);

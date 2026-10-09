@@ -55,4 +55,19 @@ describe('ChronicleAdapter', () => {
     await expect(adapter.investigate({ ...request, limit: 101 })).rejects.toMatchObject({ code: 'INVALID_QUERY' });
     expect(fetcher).not.toHaveBeenCalled();
   });
+  it('bounds credential acquisition as well as response-body streaming',async()=>{
+    const tokenAdapter=new ChronicleAdapter(config,vi.fn() as typeof fetch,()=>new Promise(()=>{}));
+    await expect(tokenAdapter.investigate(request)).rejects.toMatchObject({code:'UPSTREAM_TIMEOUT'});
+    const stream=new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode('{'));}});
+    const bodyAdapter=new ChronicleAdapter(config,vi.fn(async()=>new Response(stream)) as typeof fetch,async()=>'fixture');
+    await expect(bodyAdapter.investigate(request)).rejects.toMatchObject({code:'UPSTREAM_TIMEOUT'});
+  });
+  it('rejects malformed event lists and bounds excessive returned results',async()=>{
+    const malformed=new ChronicleAdapter(config,vi.fn(async()=>new Response('{"events":"invalid"}')) as typeof fetch,async()=>'fixture');
+    await expect(malformed.investigate(request)).rejects.toMatchObject({code:'UPSTREAM_FAILURE'});
+    const events=Array.from({length:30},(_,id)=>({metadata:{id:'fixture-'+id}}));
+    const adapter=new ChronicleAdapter(config,vi.fn(async()=>new Response(JSON.stringify({events}))) as typeof fetch,async()=>'fixture');
+    const evidence=await adapter.investigate(request);
+    expect(evidence.events).toHaveLength(25);expect(evidence.provenance.truncated).toBe(true);
+  });
 });

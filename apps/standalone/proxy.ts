@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-type SessionClaims = { role?: string; permissions?: unknown; expiresAt?: number };
+type SessionClaims = { agentId?: string; role?: string; permissions?: unknown; timestamp?: number; expiresAt?: number };
 
 const standaloneRoles = new Set(['SOC_ANALYST', 'SOC_LEAD', 'CONTROL_OPERATOR', 'SECURITY_ADMIN']);
 const controlRoles = new Set(['CONTROL_OPERATOR', 'SECURITY_ADMIN', 'AUDITOR']);
@@ -22,15 +22,21 @@ async function session(request: NextRequest): Promise<SessionClaims | null> {
     const valid = await crypto.subtle.verify('HMAC', key, decodeBase64Url(signature), new TextEncoder().encode(data));
     if (!valid) return null;
     const claims = JSON.parse(new TextDecoder().decode(decodeBase64Url(data))) as SessionClaims;
-    return Number.isSafeInteger(claims.expiresAt) && claims.expiresAt! > Date.now() ? claims : null;
+    const now = Date.now();
+    return typeof claims.agentId === 'string' && !!claims.agentId && typeof claims.role === 'string' &&
+      Array.isArray(claims.permissions) && claims.permissions.every(value => typeof value === 'string') &&
+      Number.isSafeInteger(claims.timestamp) && Number.isSafeInteger(claims.expiresAt) &&
+      claims.timestamp! <= now + 5_000 && claims.expiresAt! > now && claims.expiresAt! > claims.timestamp! &&
+      claims.expiresAt! - claims.timestamp! <= 86_400_000 ? claims : null;
   } catch { return null; }
 }
 
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const claims = await session(request);
-  if (pathname === '/') return NextResponse.redirect(new URL(claims ? '/standalone' : '/login', request.url));
-  if (pathname === '/login' && claims) return NextResponse.redirect(new URL('/standalone', request.url));
+  const landing = claims?.role === 'AUDITOR' ? '/control/executions' : '/standalone';
+  if (pathname === '/') return NextResponse.redirect(new URL(claims ? landing : '/login', request.url));
+  if (pathname === '/login' && claims) return NextResponse.redirect(new URL(landing, request.url));
   if (pathname.startsWith('/standalone') || pathname.startsWith('/control')) {
     if (!claims) {
       const login = new URL('/login', request.url); login.searchParams.set('next', pathname);

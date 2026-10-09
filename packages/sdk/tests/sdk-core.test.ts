@@ -25,7 +25,7 @@ describe('ASQClient Core SDK', () => {
 
   beforeEach(() => {
     client = new ASQClient({
-      wsUrl: 'ws://mock-server',
+      wsUrl: 'ws://127.0.0.1:4999', // Network remains mocked; plaintext fixture is explicitly loopback.
       token: 'fake-jwt-token',
       grpcMode: 'mock'
     });

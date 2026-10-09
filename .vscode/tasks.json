@@ -33,6 +33,7 @@
     },
     { "label": "GSS: Build", "type": "process", "command": "npm.cmd", "args": ["run", "build"], "problemMatcher": [] },
     { "label": "GSS: Typecheck", "type": "process", "command": "npm.cmd", "args": ["run", "typecheck"], "problemMatcher": [] },
-    { "label": "GSS: Test", "type": "process", "command": "npm.cmd", "args": ["run", "test"], "problemMatcher": [] }
+    { "label": "GSS: Test", "type": "process", "command": "npm.cmd", "args": ["run", "test"], "problemMatcher": [] },
+    { "label": "GSS: Verify local with evidence", "type":"process", "command":"npm.cmd", "args":["run","verify:local"], "problemMatcher":[] }
   ]
 }

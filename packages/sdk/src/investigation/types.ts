@@ -52,7 +52,7 @@ export interface InvestigationOutcome {
 }
 
 export interface SiemAdapter {
-  investigate(request: InvestigationRequest): Promise<InvestigationEvidence>;
+  investigate(request: InvestigationRequest, signal?: AbortSignal): Promise<InvestigationEvidence>;
 }
 
 function validIsoTimestamp(value: unknown): value is string {

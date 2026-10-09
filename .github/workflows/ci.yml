@@ -1,6 +1,18 @@
 name: ASQ verification
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
+  osv-lockfile-security:
+    permissions:
+      contents: read
+      actions: read
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@a345acffa64b0eaede81a3d9aae6141214d9c8fc # v2.6.0
+    with:
+      scan-args: |-
+        --lockfile=./package-lock.json
+      upload-sarif: false
+      fail-on-vuln: true
   verify:
     strategy:
       matrix:
@@ -13,6 +25,7 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+      - run: npm run source:check
       - run: npm run build
       - run: npm run typecheck
       - run: npm test
@@ -46,6 +59,19 @@ jobs:
       - run: npm run db:migrate
       - run: npm run test:integration
 
+  browser-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+
   dependency-security:
     runs-on: ubuntu-latest
     steps:
@@ -57,6 +83,8 @@ jobs:
       - run: npm ci
       - name: Audit production dependency vulnerabilities
         run: npm audit --omit=dev --audit-level=high
+      - name: Audit development and build supply chain too
+        run: npm audit --audit-level=high
 
   trivy-security:
     runs-on: ubuntu-latest
@@ -65,7 +93,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Generate Trivy filesystem security evidence
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -83,7 +111,7 @@ jobs:
           path: trivy-security.json
           retention-days: 30
       - name: Enforce High and Critical security gate
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -91,6 +119,5 @@ jobs:
           severity: HIGH,CRITICAL
           format: table
           exit-code: '1'
-          ignore-unfixed: true
           skip-setup-trivy: true
           skip-dirs: node_modules,apps/standalone/.next,apps/standalone/.next-production,packages/sdk/dist,packages/cli/dist

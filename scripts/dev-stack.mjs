@@ -1,9 +1,10 @@
 import 'dotenv/config';
-import { createHmac, randomBytes } from 'node:crypto';
+import { createHmac, randomBytes, generateKeyPairSync } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { connect } from 'node:net';
+import { serviceEnvironment } from './service-environment.mjs';
 
 const dryRun = process.argv.includes('--dry-run');
 const now = Date.now();
@@ -18,6 +19,7 @@ const controlPlaneToken = process.env.GSS_CONTROL_PLANE_TOKEN && process.env.GSS
 // request as an explicitly insecure loopback demo session.
 const username = 'BaoNVG';
 const password = '1';
+const taskKeys = generateKeyPairSync('ed25519');
 
 function token(agentId, role) {
   const claims = { agentId, role, permissions: ['REPORT'], timestamp: now, expiresAt: now + 8 * 60 * 60 * 1000 };
@@ -34,8 +36,13 @@ const runtimeEnv = {
   ASQ_WEB_ORIGIN: process.env.ASQ_WEB_ORIGIN || 'http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001',
   ASQ_WS_URL: process.env.ASQ_WS_URL || 'ws://127.0.0.1:4000',
   ASQ_LOCAL_RUNTIME: 'true',
+  GSS_REQUIRE_WORKER_PRESENCE: 'true',
   CONTROL_PLANE_URL: process.env.CONTROL_PLANE_URL || 'http://127.0.0.1:4100',
   GSS_CONTROL_PLANE_TOKEN: controlPlaneToken,
+  GSS_UI_GATEWAY_TOKEN: randomBytes(32).toString('base64url'),
+  GSS_TASK_KEY_ID: 'local-ephemeral',
+  GSS_TASK_PRIVATE_KEY_BASE64: Buffer.from(taskKeys.privateKey.export({ type:'pkcs8',format:'pem' })).toString('base64'),
+  GSS_TASK_PUBLIC_KEY_BASE64: Buffer.from(taskKeys.publicKey.export({ type:'spki',format:'pem' })).toString('base64'),
   GSS_DATA_DIR: process.env.GSS_DATA_DIR || resolve(root, 'data'),
   GSS_IDE_REPOSITORY_ROOTS: process.env.GSS_IDE_REPOSITORY_ROOTS || root,
   ASQ_WORKER_TOKEN: token('cli-worker-agent', 'CLI_DAEMON'),
@@ -45,7 +52,6 @@ const runtimeEnv = {
 
 const tsRuntime = ['--loader', 'ts-node/esm'];
 const nextBin = resolve(root, 'node_modules/next/dist/bin/next');
-const turboBin = resolve(root, 'node_modules/turbo/bin/turbo');
 const webRoot = resolve(root, 'apps/standalone');
 const services = [
   ['Control Plane', process.execPath, [...tsRuntime, resolve(root, 'services/control-plane/src/main.ts')], root],
@@ -106,7 +112,7 @@ if (migration.status !== 0) {
 }
 
 console.log('Building runtime packages and the stable production UI...');
-const workspaceBuild = spawnSync(process.execPath, [turboBin, 'run', 'build'], {
+const workspaceBuild = spawnSync(process.execPath, [resolve(root,'scripts/build-workspaces.mjs')], {
   cwd: root,
   env: runtimeEnv,
   stdio: 'inherit',
@@ -135,9 +141,7 @@ function stop(exitCode = 0) {
 }
 
 for (const [name, command, args, cwd] of services) {
-  const childEnv = { ...runtimeEnv, TS_NODE_TRANSPILE_ONLY: 'true', TS_NODE_PREFER_TS_EXTS: 'true' };
-  if (name !== 'Control Plane') delete childEnv.GSS_ARTIFACT_SIGNING_PRIVATE_KEY_BASE64;
-  if (name !== 'Control Plane' && name !== 'Command Center') delete childEnv.GSS_CONTROL_PLANE_TOKEN;
+  const childEnv = serviceEnvironment(runtimeEnv, name);
   const child = spawn(command, args, {
     cwd,
     env: childEnv,
@@ -156,6 +160,19 @@ for (const [name, command, args, cwd] of services) {
       stop(code ?? 1);
     }
   });
+  if (name === 'Control Plane') {
+    const deadline = Date.now() + 20_000;
+    let ready = false;
+    while (Date.now() < deadline && !stopping) {
+      try {
+        const response = await fetch(runtimeEnv.CONTROL_PLANE_URL + '/readyz', { signal: AbortSignal.timeout(1_000) });
+        ready = response.ok && (await response.json()).status === 'ready';
+        if (ready) break;
+      } catch {}
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    if (!ready) { console.error('Control Plane did not become ready; stopping the stack.'); stop(1); break; }
+  }
 }
 
 process.on('SIGINT', () => stop(0));

@@ -1,10 +1,11 @@
 import { execFile, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { TokenSigner, type CapabilityAction } from '@asq/sdk';
+import { taskAuthorizationHash, type TaskVerifier, type CapabilityAction } from '@asq/sdk';
 
 export const instructionHash = (instruction: string) => createHash('sha256').update(instruction).digest('hex');
-export interface HostTask { taskId: string; incidentId: string; instruction: string; token: string; action?: CapabilityAction }
+export interface HostTask { taskId: string; incidentId: string; instruction: string; token: string; action?: CapabilityAction;
+  caseId?: string; target?: string; parameters?: Record<string,unknown>; contextRefs?: string[] }
 export interface HostResult { taskId: string; status: 'SUCCESS' | 'FAILED' | 'DENIED' | 'CANCELLED'; output: string }
 export type HostRunner = (file: string, args: string[], signal: AbortSignal) => Promise<string>;
 
@@ -41,7 +42,7 @@ export class ControlledExecutor {
     private active = new Set<AbortController>();
     private halted = false;
 
-    constructor(private signer: TokenSigner, private runner: HostRunner = runHostCommand) {}
+    constructor(private signer: TaskVerifier, private runner: HostRunner = runHostCommand) {}
 
     public halt(): void {
         this.halted = true;
@@ -58,7 +59,9 @@ export class ControlledExecutor {
         const claims = this.signer.verify(task.token);
         if (!claims || claims.role !== 'STANDALONE' || claims.agentId !== 'cli-worker-agent' ||
             !claims.permissions.includes('EXECUTE_RECON') || claims.taskId !== task.taskId ||
-            claims.incidentId !== task.incidentId || claims.instructionHash !== instructionHash(task.instruction))
+            claims.incidentId !== task.incidentId ||
+            claims.instructionHash !== instructionHash(task.instruction) ||
+            claims.taskHash && claims.taskHash !== taskAuthorizationHash(task))
             return result('DENIED', 'Invalid or mismatched task authorization');
         for (const [id, expiry] of this.used) if (expiry <= Date.now()) this.used.delete(id);
         if (this.used.has(task.taskId) || this.used.size >= 10000) return result('DENIED', 'Replayed task or capacity limit');

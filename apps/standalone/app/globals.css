@@ -28,6 +28,22 @@
   --sidebar: 232px;
   --ease: cubic-bezier(.2,.75,.25,1);
 }
+.approval-console { display:grid; gap:24px; }
+.approval-boundary { padding:16px 20px; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface); color:var(--text-secondary); }
+.approval-request,.approval-card { display:grid; gap:16px; padding:24px; border:1px solid var(--border); border-radius:var(--radius-lg); background:var(--surface); box-shadow:var(--shadow-sm); }
+.approval-request { max-width:760px; }
+.approval-request label { display:grid; gap:8px; font-weight:600; }
+.approval-request input { width:100%; padding:12px; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--surface); color:var(--text); }
+.approval-request p,.approval-card p { color:var(--text-secondary); }
+.approval-console button { min-height:44px; cursor:pointer; justify-self:start; }
+.approval-console button:disabled { cursor:not-allowed; opacity:.55; }
+.approval-error { padding:16px; border-radius:var(--radius-sm); background:var(--red-soft); color:var(--red); }
+.approval-list { display:grid; gap:16px; }
+.approval-list-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.approval-card dl { display:grid; grid-template-columns:100px minmax(0,1fr); gap:12px; margin:0; }
+.approval-card dd { margin:0; overflow-wrap:anywhere; }
+.approval-card dt,.approval-card span { color:var(--text-secondary); }
+@media(max-width:480px) { .approval-card dl { grid-template-columns:1fr; } .approval-request,.approval-card { padding:18px; } }
 
 * { box-sizing: border-box; }
 html { background: var(--bg); scroll-behavior: smooth; }
@@ -251,6 +267,31 @@ tbody tr:hover { background: #fafbfc; }
 .link-arrow-right { transform: rotate(180deg); }
 .policy-panel > strong { display: block; margin-top: 8px; font-size: 12px; }
 
+.fleet-console { display:grid; gap:20px; }
+.fleet-toolbar { display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; }
+.fleet-toolbar p { color:var(--text-secondary); }
+.fleet-toolbar button { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px;
+  padding:10px 16px; border:1px solid var(--border); border-radius:12px; background:var(--surface); color:var(--text);
+  font:inherit; font-size:13px; font-weight:600; box-shadow:var(--shadow-sm); cursor:pointer;
+  transition:background 180ms var(--ease),box-shadow 180ms var(--ease); }
+.fleet-toolbar button:hover:not(:disabled) { background:var(--surface-hover); box-shadow:var(--shadow-md); }
+.fleet-toolbar button:focus-visible { outline:3px solid var(--blue); outline-offset:3px; }
+.fleet-toolbar button:disabled { opacity:.6; cursor:wait; }
+.fleet-error { padding:16px; border-radius:var(--radius-md); background:var(--red-soft); color:var(--red); }
+.fleet-empty { padding:24px; color:var(--text-secondary); }
+.fleet-console .agent-panel { min-width:0; }
+.fleet-console .agent-head { flex-wrap:wrap; }
+.fleet-console .agent-head > div { min-width:120px; overflow-wrap:anywhere; }
+.fleet-console .agent-stats { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.fleet-console .agent-stats dt { color:var(--text-secondary); font-size:11px; line-height:1.5; }
+.fleet-console .agent-stats dd { font-size:12px; overflow-wrap:anywhere; }
+.fleet-console .capability-list span { font-size:11px; overflow-wrap:anywhere; }
+.fleet-presence { display:inline-flex; align-items:center; gap:6px; padding:6px 9px; border-radius:9px; font-size:11px; font-weight:600; }
+.fleet-fresh { color:var(--text); background:var(--blue-soft); }
+.fleet-unverified { color:var(--text-secondary); background:var(--surface); border:1px solid var(--border); }
+.fleet-last-seen { margin-top:14px; color:var(--text-secondary); font-size:11px; line-height:1.6; }
+.fleet-console .quiet-banner strong { font-size:13px; }
+.fleet-console .quiet-banner p { font-size:12px; line-height:1.6; }
 .agent-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .agent-panel { padding: 20px; }
 .agent-head { display: flex; align-items: center; gap: 11px; }

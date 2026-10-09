@@ -1,3 +1,4 @@
+import { controlPlaneFixture } from '../helpers/control-plane-fixture.ts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -107,7 +108,7 @@ describe('IDE read-only vertical slice over real WebSockets', () => {
       agent: 'ide', action: 'search_code' as const, instruction: 'Find GSS_IDE_MARKER',
       parameters: { question: 'Find GSS_IDE_MARKER', query: 'GSS_IDE_MARKER', path: 'src' },
     }) };
-    const app = new CentralCommandOrchestrator(0, router, signer, store, new FilesystemArtifactStore(artifactRoot));
+    const app = new CentralCommandOrchestrator(0, router, signer, controlPlaneFixture(store), new FilesystemArtifactStore(artifactRoot));
     servers.push(app);
     const port = await app.ready();
     const daemon = new IdeInvestigatorDaemon(`ws://127.0.0.1:${port}`,
@@ -147,7 +148,7 @@ describe('IDE read-only vertical slice over real WebSockets', () => {
       agent: 'ide', action: 'search_code' as const, instruction: 'Find marker',
       parameters: { question: 'Find marker', query: 'marker', path: 'src' },
     }) };
-    const app = new CentralCommandOrchestrator(0, router, signer, store, new FilesystemArtifactStore(artifactRoot));
+    const app = new CentralCommandOrchestrator(0, router, signer, controlPlaneFixture(store), new FilesystemArtifactStore(artifactRoot));
     servers.push(app);
     const port = await app.ready();
     const worker = await connect(port, session('ide-worker-agent', 'IDE_AGENT', ['REPORT']));
@@ -170,6 +171,33 @@ describe('IDE read-only vertical slice over real WebSockets', () => {
     expect(store.results[0]?.status).toBe('FAILED');
   });
 
+  it('rejects verified worker output when authority cannot register the artifact, without emitting SUCCESS', async () => {
+    const repositoryRoot = await temporaryRoot(), artifactRoot = await temporaryRoot();
+    await mkdir(join(repositoryRoot, 'src'));
+    await writeFile(join(repositoryRoot, 'src', 'evidence.ts'), 'export const VERIFIED_MARKER = 1;\n');
+    const store = new MemoryRuntimeStore();
+    const authority = controlPlaneFixture(store);
+    authority.registerArtifact = async () => { throw new Error('Registration unavailable'); };
+    const router = { routePrompt: async () => ({ agent: 'ide', action: 'search_code' as const,
+      instruction: 'Find VERIFIED_MARKER', parameters: { query: 'VERIFIED_MARKER', path: 'src' } }) };
+    const app = new CentralCommandOrchestrator(0, router, signer, authority, new FilesystemArtifactStore(artifactRoot));
+    servers.push(app); const port = await app.ready();
+    const daemon = new IdeInvestigatorDaemon('ws://127.0.0.1:' + port,
+      session('ide-worker-agent', 'IDE_AGENT', ['REPORT']), new ReadonlyRepoInvestigator([repositoryRoot]));
+    daemons.push(daemon); await daemon.connect();
+    const user = await connect(port, session('controller'));
+    const frames: any[] = []; user.on('message', raw => frames.push(JSON.parse(raw.toString())));
+    const failed = nextStatus(user, 'FAILED');
+    user.send(JSON.stringify({ type: 'COMMAND', message_id: randomUUID(), incident_id: 'case-registration-failure',
+      timestamp: Date.now(), payload: { action: 'commander_prompt', content: 'Find the marker' } }));
+    const status = await failed;
+    expect(status.payload.result.status).toBe('FAILED');
+    expect(status.payload.result.result.investigation).toBeUndefined();
+    expect(status.payload.result.evidenceRefs).toEqual([]);
+    expect(store.results[0]?.status).toBe('FAILED'); expect(store.observations).toHaveLength(0);
+    expect(frames.some(value => value.payload?.source === 'SUCCESS')).toBe(false);
+  });
+
   it('does not create a duplicate IDE task when the same request is replayed after orchestrator restart', async () => {
     const store = new MemoryRuntimeStore();
     const router = { routePrompt: async () => ({
@@ -179,7 +207,7 @@ describe('IDE read-only vertical slice over real WebSockets', () => {
       type: 'COMMAND', message_id: 'stable-request-id', incident_id: 'case-ide-restart', timestamp: Date.now(),
       payload: { action: 'commander_prompt', content: 'Find the marker' },
     };
-    const first = new CentralCommandOrchestrator(0, router, signer, store);
+    const first = new CentralCommandOrchestrator(0, router, signer, controlPlaneFixture(store));
     servers.push(first);
     const firstPort = await first.ready();
     const worker = await connect(firstPort, session('ide-worker-agent', 'IDE_AGENT', ['REPORT']));
@@ -191,7 +219,7 @@ describe('IDE read-only vertical slice over real WebSockets', () => {
     await first.close();
     servers.splice(servers.indexOf(first), 1);
 
-    const second = new CentralCommandOrchestrator(0, router, signer, store);
+    const second = new CentralCommandOrchestrator(0, router, signer, controlPlaneFixture(store));
     servers.push(second);
     const secondUser = await connect(await second.ready(), session('controller-second'));
     const duplicate = nextStatus(secondUser, 'DUPLICATE');

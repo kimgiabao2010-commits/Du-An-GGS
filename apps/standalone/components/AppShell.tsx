@@ -21,6 +21,7 @@ const utilities = [
   { href: '/control/context', label: 'Cost & Context', icon: CircleDollarSign },
   { href: '/control/logs', label: 'Logs', icon: ScrollText },
   { href: '/control/siem', label: 'SIEM', icon: ShieldCheck },
+  { href: '/control/approvals', label: 'Approvals', icon: FileCheck2 },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -29,8 +30,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const searchItems = [...navigation, ...utilities].filter(item => item.label.toLowerCase().includes(query.trim().toLowerCase()));
-
-  if (pathname === '/login') return <>{children}</>;
 
   useEffect(() => setOpen(false), [pathname]);
   useEffect(() => {
@@ -43,6 +42,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     window.addEventListener('keydown', listener);
     return () => window.removeEventListener('keydown', listener);
   }, []);
+
+  if (pathname === '/login') return <>{children}</>;
 
   const renderLink = ({ href, label, icon: Icon }: (typeof navigation)[number]) => {
     const active = pathname === href || pathname.startsWith(`${href}/`);
@@ -71,7 +72,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <header className="shell-topbar">
         <button className="icon-button mobile-menu" onClick={() => setOpen(value => !value)} aria-label={open ? 'Close navigation' : 'Open navigation'}>{open ? <X size={20} /> : <Menu size={20} />}</button>
         <div className="global-search"><Search size={16} aria-hidden="true" /><input id="global-search" aria-label="Navigate GSS" placeholder="Go to tasks, agents, evidence…" value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && searchItems[0]) { router.push(searchItems[0].href); setQuery(''); } if (event.key === 'Escape') setQuery(''); }} /><kbd>⌘ K</kbd>{query && <div className="search-results" role="listbox" aria-label="Navigation results">{searchItems.length ? searchItems.map(item => <Link key={item.href} href={item.href} onClick={() => setQuery('')}><item.icon size={15} /><span>{item.label}</span><ChevronRight size={13} /></Link>) : <span>No destination found</span>}</div>}</div>
-        <div className="topbar-status"><ShieldCheck size={14} aria-hidden="true" /><span>Evidence protected</span><span className="status-dot success" /></div>
+        <div className="topbar-status"><ShieldCheck size={14} aria-hidden="true" /><span>Read-only execution</span></div>
       </header>
       <main id="main-content" className="shell-content">{children}</main>
     </div>

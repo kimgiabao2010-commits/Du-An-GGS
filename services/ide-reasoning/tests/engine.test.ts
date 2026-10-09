@@ -12,6 +12,15 @@ function task(): GssTaskContract {
 }
 
 describe('IdeInvestigatorDaemon boundaries', () => {
+  it('reports investigator rejection without leaking details or creating evidence',async()=>{
+    const daemon=new IdeInvestigatorDaemon('ws://127.0.0.1:1','fixture-token',{execute:vi.fn().mockRejectedValue(new Error('sensitive fixture detail'))} as any);
+    const publish=vi.fn();(daemon as any).publish=publish;
+    vi.spyOn((daemon as any).wsClient,'acceptTask').mockResolvedValue(true);
+    await (daemon as any).handle({type:'TASK',source:'STANDALONE',incident_id:'CASE-REPLAY',payload:task()});
+    expect(publish).toHaveBeenCalledWith('CASE-REPLAY',expect.objectContaining({status:'FAILED'}));
+    expect(JSON.stringify(publish.mock.calls)).not.toContain('sensitive fixture detail');
+    expect(publish.mock.calls[0][1]).not.toHaveProperty('investigation');daemon.stop();
+  });
   it('executes a task once and reports a replay without running the investigator again', async () => {
     const execute = vi.fn(async (value: GssTaskContract) => ({
       taskId: value.taskId, status: 'SUCCESS' as const, output: '{}', durationMs: 1,
@@ -19,6 +28,7 @@ describe('IdeInvestigatorDaemon boundaries', () => {
     const daemon = new IdeInvestigatorDaemon('ws://127.0.0.1:1', 'test-token', { execute } as unknown as ReadonlyRepoInvestigator);
     const publish = vi.fn();
     (daemon as any).publish = publish;
+    vi.spyOn((daemon as any).wsClient, 'acceptTask').mockResolvedValue(true); // Explicit authority ACK fixture.
     const message = { type: 'TASK', source: 'STANDALONE', incident_id: 'CASE-REPLAY', payload: task() };
     await (daemon as any).handle(message);
     await (daemon as any).handle(message);

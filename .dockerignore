@@ -1,0 +1,17 @@
+.git
+**/node_modules
+**/dist
+**/.next*
+**/.turbo
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/credentials*
+**/secrets*
+data
+**/worker-spool
+**/*.docx
+**/*.pdf
+test-results
+playwright-report

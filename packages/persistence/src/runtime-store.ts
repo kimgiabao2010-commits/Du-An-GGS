@@ -3,7 +3,7 @@ import { Pool, type PoolClient } from 'pg';
 import type {
   CaseState, GssResultContract, GssTaskContract, InvestigationRun, ModelUsageRecord, NextStepProposal, ObservationPack, TaskStatus,
 } from '@asq/sdk';
-import { actionFingerprint, sha256Canonical } from '@asq/sdk';
+import { actionFingerprint, sha256Canonical, currentTraceparent, initialTaskDispatchEvent, resultSubmissionHash } from '@asq/sdk';
 import {
   PostgresInvestigationLoopStore,
   commitObservationAndDecisionWithClient,
@@ -17,6 +17,13 @@ export interface ClaimedDispatch {
   claimOwner: string;
   parentTaskId?: string;
   loop: CommitObservationResult;
+}
+
+export interface InitialTaskDispatch {
+  claimOwner: string;
+  eventId: string;
+  task: GssTaskContract;
+  runId?: string;
 }
 
 export interface RuntimeStore {
@@ -35,7 +42,8 @@ export interface RuntimeStore {
   }): Promise<{ created: boolean }>;
   updateTask(taskId: string, status: TaskStatus, assignedWorker?: string): Promise<void>;
   claimPendingDispatches?(claimOwner: string, limit?: number): Promise<ClaimedDispatch[]>;
-  markOutboxPublished?(eventId: string, claimOwner?: string): Promise<boolean>;
+  claimInitialDispatches?(claimOwner: string, limit?: number): Promise<InitialTaskDispatch[]>;
+  markOutboxPublished?(eventId: string, claimOwner: string): Promise<boolean>;
   releaseOutbox?(eventId: string, claimOwner: string, error: string, retryAt: string): Promise<boolean>;
   recordResult(result: GssResultContract, observation?: ObservationPack, loop?: {
     runId: string;
@@ -63,7 +71,22 @@ export class PostgresRuntimeStore implements RuntimeStore {
     }));
   }
 
-  public async ready(): Promise<void> { await this.pool.query('SELECT 1'); }
+  public async ready(): Promise<void> {
+    const required = ['cases', 'runtime_tasks', 'runtime_executions', 'investigation_runs', 'evidence_frontiers',
+      'next_step_decisions', 'control_outbox', 'model_usage', 'runtime_result_receipts', 'artifact_registry',
+      'case_messages', 'audit_events', 'approval_requests', 'approval_approvals', 'worker_result_deliveries',
+      'control_runtime_state', 'command_intakes', 'worker_task_acceptances', 'identity_revocations', 'case_access',
+      'model_case_budgets','model_call_reservations','worker_registry','worker_connections',
+      'workload_revocation_state','workload_certificate_revocations'];
+    const result = await this.pool.query<{ name: string; present: boolean }>(
+      'SELECT name,to_regclass(name) IS NOT NULL AS present FROM unnest($1::text[]) AS name', [required]);
+    if (result.rows.length !== required.length || result.rows.some(row => !row.present)) {
+      throw new Error('Control Plane storage migrations are incomplete');
+    }
+    const usage=await this.pool.query(`SELECT count(*)::int AS n FROM information_schema.columns
+      WHERE table_schema=current_schema() AND table_name='model_usage' AND column_name IN ('cost_status','cache_write_tokens')`);
+    if(usage.rows[0]?.n!==2) throw new Error('Model usage migrations are incomplete');
+  }
   public async close(): Promise<void> { await this.pool.end(); }
 
   public async ensureCase(caseId: string, actorId: string): Promise<void> {
@@ -71,8 +94,11 @@ export class PostgresRuntimeStore implements RuntimeStore {
       ON CONFLICT (case_id) DO NOTHING`, [caseId, actorId]);
   }
 
-  public async ensureInvestigationRun(caseId: string, requestedBy: string): Promise<InvestigationRun> {
-    return this.loopStore.ensureRun({ caseId, requestedBy });
+  public async ensureInvestigationRun(caseId: string, requestedBy: string, traceparent?: string): Promise<InvestigationRun> {
+    const run = await this.loopStore.ensureRun({ caseId, requestedBy });
+    if (!traceparent) return run;
+    await this.pool.query('UPDATE investigation_runs SET traceparent=COALESCE(traceparent,$2) WHERE run_id=$1', [run.runId, traceparent]);
+    return (await this.loopStore.getRun(run.runId))!;
   }
 
   public async getInvestigationRun(runId: string): Promise<InvestigationRun | null> {
@@ -103,19 +129,116 @@ export class PostgresRuntimeStore implements RuntimeStore {
     parentTaskId?: string;
     actionFingerprint?: string;
   } = {}): Promise<{ created: boolean }> {
-    const result = await this.pool.query<{ inserted: boolean }>(`INSERT INTO runtime_tasks
+    linkage = { ...linkage, actionFingerprint: linkage.actionFingerprint ?? sha256Canonical({
+      caseId: task.caseId, target: task.target, action: task.action, parameters: task.parameters,
+      contextRefs: task.contextRefs, timeoutMs: task.timeoutMs,
+      runId: linkage.runId ?? null, parentTaskId: linkage.parentTaskId ?? null,
+    }) };
+    return this.transaction(async client => {
+    const authority = (await client.query('SELECT halted FROM control_runtime_state WHERE singleton=true FOR SHARE')).rows[0];
+    if (!authority || authority.halted) throw Object.assign(new Error('control_halted'), { statusCode: 503 });
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [task.idempotencyKey]);
+    const existing = await client.query<{ action_fingerprint: string | null }>(
+      'SELECT action_fingerprint FROM runtime_tasks WHERE idempotency_key=$1', [task.idempotencyKey]);
+    if (existing.rows[0]) {
+      if (linkage.actionFingerprint && existing.rows[0].action_fingerprint !== linkage.actionFingerprint) {
+        throw Object.assign(new Error('idempotency_key_payload_mismatch'), { statusCode: 409 });
+      }
+      return { created: false };
+    }
+    await client.query("INSERT INTO cases (case_id,state,created_by) VALUES ($1,'NEW',$2) ON CONFLICT (case_id) DO NOTHING", [task.caseId, requestedBy]);
+    const budget=(await client.query('SELECT blocked FROM model_case_budgets WHERE case_id=$1 FOR SHARE',[task.caseId])).rows[0];
+    if(budget && (budget.blocked || (await client.query("SELECT 1 FROM model_call_reservations WHERE case_id=$1 AND state='STARTED' LIMIT 1",[task.caseId])).rowCount)) {
+      throw Object.assign(new Error('model_budget_uncertain'),{statusCode:403});
+    }
+    if (!linkage.runId && !linkage.parentTaskId) {
+      const run = await this.loopStore.ensureRun({ caseId: task.caseId, requestedBy }, client);
+      linkage = { ...linkage, runId: run.runId };
+    }
+    if (linkage.runId) {
+      const run = await client.query('SELECT case_id,cost_micros_used,max_cost_micros,cost_accounting_unknown FROM investigation_runs WHERE run_id=$1 FOR SHARE', [linkage.runId]);
+      if (!run.rows[0] || run.rows[0].case_id !== task.caseId) throw Object.assign(new Error('invalid task run provenance'), { statusCode: 422 });
+      if (Number(run.rows[0].cost_micros_used)>=Number(run.rows[0].max_cost_micros)) throw Object.assign(new Error('cost_budget_exhausted'),{statusCode:403});
+      if ((process.env.GSS_RUNTIME_ENV==='staging' || process.env.GSS_ENFORCE_COST_ACCOUNTING==='true') && run.rows[0].cost_accounting_unknown) {
+        throw Object.assign(new Error('cost_accounting_unknown'),{statusCode:403});
+      }
+    }
+    if (linkage.parentTaskId) {
+      const parent = await client.query('SELECT case_id,run_id FROM runtime_tasks WHERE task_id=$1', [linkage.parentTaskId]);
+      if (!parent.rows[0] || parent.rows[0].case_id !== task.caseId || parent.rows[0].run_id !== linkage.runId) {
+        throw Object.assign(new Error('invalid parent task provenance'), { statusCode: 422 });
+      }
+    }
+    const result = await client.query<{ inserted: boolean }>(`INSERT INTO runtime_tasks
       (task_id, case_id, idempotency_key, source, target, action, parameters, risk_level, context_refs, timeout_ms,
-       status, requested_by, created_at, run_id, parent_task_id, action_fingerprint)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'QUEUED',$11,$12,$13,$14,$15)
+       status, requested_by, created_at, run_id, parent_task_id, action_fingerprint, traceparent)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'QUEUED',$11,$12,$13,$14,$15,$16)
       ON CONFLICT (idempotency_key) DO NOTHING RETURNING true AS inserted`,
       [task.taskId, task.caseId, task.idempotencyKey, task.source, task.target, task.action,
         JSON.stringify(task.parameters), task.riskLevel, task.contextRefs, task.timeoutMs, requestedBy, task.createdAt,
-        linkage.runId ?? null, linkage.parentTaskId ?? null, linkage.actionFingerprint ?? null]);
-    return { created: result.rows[0]?.inserted ?? false };
+        linkage.runId ?? null, linkage.parentTaskId ?? null, linkage.actionFingerprint ?? null, task.traceparent ?? null]);
+    const created = result.rows[0]?.inserted ?? false;
+    if (created && !linkage.parentTaskId) {
+      const event = initialTaskDispatchEvent(task, linkage.runId);
+      await client.query(`INSERT INTO control_outbox
+        (event_id,aggregate_id,event_type,payload,event_hash,created_at) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [event.eventId, event.aggregateId, event.eventType, JSON.stringify(event.payload), event.eventHash, event.createdAt]);
+    }
+    return { created };
+    });
   }
 
-  public async claimPendingDispatches(claimOwner: string, limit = 25): Promise<ClaimedDispatch[]> {
-    const claims = await this.loopStore.claimOutbox(claimOwner, limit);
+  public async claimInitialDispatches(claimOwner: string, limit = 25, eventIds?: string[]): Promise<InitialTaskDispatch[]> {
+    const claims = await this.loopStore.claimOutbox(claimOwner, limit, 60_000, 'initial', eventIds);
+    const dispatches: InitialTaskDispatch[] = [];
+    for (const { event } of claims) {
+      const task = event.payload.task as GssTaskContract | undefined;
+      const runId = typeof event.payload.runId === 'string' ? event.payload.runId : undefined;
+      let valid = false;
+      try {
+        valid = event.eventHash === sha256Canonical({ aggregateId: event.aggregateId,
+          eventType: event.eventType, payload: event.payload }) && task?.schemaVersion === 'gss.task.v1' &&
+          task.riskLevel === 'read_only' && typeof task.taskId === 'string' && typeof task.caseId === 'string' &&
+          typeof task.idempotencyKey === 'string' && typeof task.action === 'string' && task.source === 'standalone' &&
+          ['cli', 'ide', 'siem'].includes(task.target) && !!task.parameters && typeof task.parameters === 'object' &&
+          !Array.isArray(task.parameters) && Array.isArray(task.contextRefs) &&
+          task.contextRefs.every(ref => typeof ref === 'string') && Number.isInteger(task.timeoutMs) &&
+          task.timeoutMs >= 1_000 && task.timeoutMs <= 120_000 && !!runId && event.aggregateId === runId;
+      } catch { /* Invalid persisted JSON fails closed. */ }
+      if (valid && task) {
+        const persisted = await this.pool.query(`SELECT t.*,
+          EXISTS (SELECT 1 FROM runtime_executions e WHERE e.task_id=t.task_id) AS has_result
+          FROM runtime_tasks t WHERE task_id=$1`, [task.taskId]);
+        const row = persisted.rows[0];
+        const sameTask = row && row.parent_task_id === null && (row.run_id ?? undefined) === runId &&
+          sha256Canonical({ caseId: row.case_id, idempotencyKey: row.idempotency_key, source: row.source,
+            target: row.target, action: row.action, parameters: row.parameters, riskLevel: row.risk_level,
+            contextRefs: row.context_refs, timeoutMs: row.timeout_ms }) ===
+          sha256Canonical({ caseId: task.caseId, idempotencyKey: task.idempotencyKey, source: task.source,
+            target: task.target, action: task.action, parameters: task.parameters, riskLevel: task.riskLevel,
+            contextRefs: task.contextRefs, timeoutMs: task.timeoutMs });
+        if (sameTask) {
+          const run = runId ? await this.loopStore.getRun(runId) : null;
+          const expired = runId && (!run || run.state !== 'ACTIVE' || Date.parse(run.budget.deadlineAt) <= Date.now());
+          if (row.has_result || ['COMPLETED', 'FAILED', 'CANCELLED'].includes(row.status) || expired) {
+            // published_at means intent processed, not worker ACK; preserve a retirement reason for audit.
+            await this.pool.query(`UPDATE control_outbox SET published_at=now(),locked_by=NULL,locked_at=NULL,
+              last_error='Dispatch retired: terminal task or inactive/expired run'
+              WHERE event_id=$1 AND locked_by=$2 AND published_at IS NULL`, [event.eventId, claimOwner]);
+            continue; // Retire stale intent; never produce an observation or re-execute a terminal task.
+          }
+          dispatches.push({ claimOwner, eventId: event.eventId, task, ...(runId ? { runId } : {}) });
+          continue;
+        }
+      }
+      await this.loopStore.releaseOutbox(event.eventId, claimOwner,
+        'Initial dispatch hash or task provenance is invalid', new Date(Date.now() + 60_000).toISOString());
+    }
+    return dispatches;
+  }
+
+  public async claimPendingDispatches(claimOwner: string, limit = 25, eventIds?: string[]): Promise<ClaimedDispatch[]> {
+    const claims = await this.loopStore.claimOutbox(claimOwner, limit, 60_000, 'decision', eventIds);
     const dispatches: ClaimedDispatch[] = [];
     for (const claim of claims) {
       const recovered = await this.recoverDispatch(claim);
@@ -126,11 +249,9 @@ export class PostgresRuntimeStore implements RuntimeStore {
     return dispatches;
   }
 
-  public async markOutboxPublished(eventId: string, claimOwner?: string): Promise<boolean> {
-    if (claimOwner) return this.loopStore.markOutboxPublished(eventId, claimOwner);
-    const result = await this.pool.query(`UPDATE control_outbox SET published_at=now(), locked_by=NULL, locked_at=NULL,
-      last_error=NULL WHERE event_id=$1 AND published_at IS NULL`, [eventId]);
-    return result.rowCount === 1;
+  public async markOutboxPublished(eventId: string, claimOwner: string): Promise<boolean> {
+    if (!claimOwner?.trim()) throw Object.assign(new Error('claimOwner is required'), { statusCode: 422 });
+    return this.loopStore.markOutboxPublished(eventId, claimOwner);
   }
 
   public async releaseOutbox(eventId: string, claimOwner: string, error: string, retryAt: string): Promise<boolean> {
@@ -138,10 +259,27 @@ export class PostgresRuntimeStore implements RuntimeStore {
   }
 
   public async updateTask(taskId: string, status: TaskStatus, assignedWorker?: string): Promise<void> {
-    await this.pool.query(`UPDATE runtime_tasks SET status = $2, assigned_worker = COALESCE($3, assigned_worker),
+    await this.transaction(async client => {
+    if (['QUEUED','DISPATCHED','RUNNING'].includes(status)) {
+      const authority = (await client.query('SELECT halted FROM control_runtime_state WHERE singleton=true FOR SHARE')).rows[0];
+      if (!authority || authority.halted) throw Object.assign(new Error('control_halted'), { statusCode: 503 });
+    }
+    const current = await client.query('SELECT status FROM runtime_tasks WHERE task_id=$1 FOR UPDATE', [taskId]);
+    if (!current.rows[0]) throw Object.assign(new Error('task_not_found'), { statusCode: 404 });
+    const completed = await client.query('SELECT 1 FROM runtime_executions WHERE task_id=$1', [taskId]);
+    if (completed.rows[0]) {
+      if (current.rows[0].status !== status) throw Object.assign(new Error('terminal_task_transition_denied'), { statusCode: 409 });
+      return;
+    }
+    if (['COMPLETED','FAILED','CANCELLED'].includes(current.rows[0].status) && current.rows[0].status !== status) {
+      throw Object.assign(new Error('terminal_task_transition_denied'), { statusCode: 409 });
+    }
+    if (current.rows[0].status === 'RUNNING' && status === 'DISPATCHED') return;
+    await client.query(`UPDATE runtime_tasks SET status = $2, assigned_worker = COALESCE($3, assigned_worker),
       started_at = CASE WHEN $2 IN ('DISPATCHED','RUNNING') AND started_at IS NULL THEN now() ELSE started_at END,
       completed_at = CASE WHEN $2 IN ('COMPLETED','BLOCKED','FAILED','CANCELLED') THEN now() ELSE completed_at END,
       updated_at = now() WHERE task_id = $1`, [taskId, status, assignedWorker ?? null]);
+    });
   }
 
   public async recordResult(result: GssResultContract, observation?: ObservationPack, loop?: {
@@ -150,12 +288,42 @@ export class PostgresRuntimeStore implements RuntimeStore {
     artifactHash?: string;
     proposal: NextStepProposal;
   }): Promise<void | CommitObservationResult> {
+    return (await this.recordResultReceipt(result, observation, loop)).loop;
+  }
+
+  public async recordResultReceipt(result: GssResultContract, observation?: ObservationPack, loop?: {
+    runId: string; source: string; artifactHash?: string; proposal: NextStepProposal;
+  }, deliveryId?: string): Promise<{ replay: boolean; loop?: CommitObservationResult }> {
     return this.transaction(async client => {
+      const task = await client.query('SELECT case_id,target,run_id,status FROM runtime_tasks WHERE task_id=$1 FOR UPDATE', [result.taskId]);
+      if (!task.rows[0]) throw Object.assign(new Error('task_not_found'), { statusCode: 404 });
+      if (task.rows[0].case_id !== result.caseId || task.rows[0].target !== result.executor ||
+          (loop && task.rows[0].run_id !== loop.runId)) {
+        throw Object.assign(new Error('result_task_provenance_mismatch'), { statusCode: 422 });
+      }
+      const envelopeHash = sha256Canonical(JSON.parse(JSON.stringify({ result, observation: observation ?? null, loop: loop ?? null })));
+      const delivery = (await client.query('SELECT delivery_id,prepared_hash,prepared_payload FROM worker_result_deliveries WHERE task_id=$1', [result.taskId])).rows[0];
+      if (delivery && !deliveryId || deliveryId && (!delivery || delivery.delivery_id !== deliveryId || delivery.prepared_hash !== envelopeHash)) {
+        throw Object.assign(new Error('worker_delivery_prepared_result_mismatch'), { statusCode: 409 });
+      }
+      if (delivery && (!delivery.prepared_payload || resultSubmissionHash(delivery.prepared_payload) !== delivery.prepared_hash)) {
+        throw Object.assign(new Error('prepared_result_integrity_failed'), { statusCode: 409 });
+      }
+      const receipt = await client.query('SELECT envelope_hash,loop_result FROM runtime_result_receipts WHERE task_id=$1', [result.taskId]);
+      if (receipt.rows[0]) {
+        if (receipt.rows[0].envelope_hash !== envelopeHash) throw Object.assign(new Error('result_payload_mismatch'), { statusCode: 409 });
+        if (deliveryId) await client.query('UPDATE worker_result_deliveries SET committed_at=COALESCE(committed_at,now()) WHERE task_id=$1', [result.taskId]);
+        return { replay: true, ...(receipt.rows[0].loop_result ? { loop: { ...receipt.rows[0].loop_result, created: false } as CommitObservationResult } : {}) };
+      }
+      const historical = await client.query('SELECT 1 FROM runtime_executions WHERE task_id=$1', [result.taskId]);
+      if (historical.rows[0]) throw Object.assign(new Error('legacy_result_requires_explicit_reconciliation'), { statusCode: 409 });
+      if (['CANCELLED', 'FAILED', 'COMPLETED'].includes(task.rows[0].status)) {
+        throw Object.assign(new Error('terminal_task_result_denied'), { statusCode: 409 });
+      }
       await client.query(`INSERT INTO runtime_executions
         (task_id, case_id, executor, status, result, evidence_refs, errors, metrics, completed_at)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-        ON CONFLICT (task_id) DO UPDATE SET status=EXCLUDED.status, result=EXCLUDED.result,
-        evidence_refs=EXCLUDED.evidence_refs, errors=EXCLUDED.errors, metrics=EXCLUDED.metrics, completed_at=EXCLUDED.completed_at`,
+        ON CONFLICT (task_id) DO NOTHING`,
         [result.taskId, result.caseId, result.executor, result.status, JSON.stringify(result.result), result.evidenceRefs,
           JSON.stringify(result.errors), JSON.stringify(result.metrics), result.completedAt]);
       if (observation) await client.query(`INSERT INTO observation_packs
@@ -190,8 +358,10 @@ export class PostgresRuntimeStore implements RuntimeStore {
       await client.query(`INSERT INTO audit_events (event_type,severity,actor_id,target_resource,action_payload,incident_id,event_hash)
         VALUES ('RUNTIME_RESULT','INFO',$1,$2,$3,$4,$5) ON CONFLICT (event_hash) WHERE event_hash IS NOT NULL DO NOTHING`,
         [result.executor, result.taskId, auditPayload, result.caseId, eventHash]);
+      let committedLoop: CommitObservationResult | undefined;
       if (observation && loop) {
-        return commitObservationAndDecisionWithClient(client, {
+        committedLoop = await commitObservationAndDecisionWithClient(client, {
+          traceparent: currentTraceparent(),
           runId: loop.runId,
           observation,
           source: loop.source,
@@ -199,7 +369,18 @@ export class PostgresRuntimeStore implements RuntimeStore {
           proposal: loop.proposal,
         });
       }
-      return undefined;
+      await client.query('INSERT INTO runtime_result_receipts (task_id,envelope_hash,loop_result) VALUES ($1,$2,$3)',
+        [result.taskId, envelopeHash, committedLoop ? JSON.stringify(committedLoop) : null]);
+      // Lifecycle and display message are part of the result commit, including background recovery.
+      const caseState = result.status !== 'COMPLETED' || committedLoop?.decision.kind === 'BLOCKED' ? 'INVESTIGATING' :
+        committedLoop?.decision.kind === 'DISPATCH' ? 'COLLECTING_EVIDENCE' : 'ANALYZING';
+      await client.query("UPDATE cases SET state=$2,updated_at=now() WHERE case_id=$1 AND state<>'CLOSED'", [result.caseId, caseState]);
+      await client.query(`INSERT INTO case_messages(message_id,case_id,role,content,metadata) VALUES($1,$2,'WORKER',$3,$4)`,
+        [randomUUID(), result.caseId, observation?.summary ?? String(result.result.summary ?? result.status).slice(0,1600),
+          JSON.stringify({ taskId: result.taskId, evidenceRefs: result.evidenceRefs })]);
+      await client.query('UPDATE worker_task_acceptances SET completed_at=now() WHERE task_id=$1', [result.taskId]);
+      if (deliveryId) await client.query('UPDATE worker_result_deliveries SET committed_at=now() WHERE task_id=$1', [result.taskId]);
+      return { replay: false, ...(committedLoop ? { loop: committedLoop } : {}) };
     });
   }
 
