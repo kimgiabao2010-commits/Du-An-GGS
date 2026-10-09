@@ -77,7 +77,7 @@ export class PostgresRuntimeStore implements RuntimeStore {
       'case_messages', 'audit_events', 'approval_requests', 'approval_approvals', 'worker_result_deliveries',
       'control_runtime_state', 'command_intakes', 'worker_task_acceptances', 'identity_revocations', 'case_access',
       'model_case_budgets','model_call_reservations','worker_registry','worker_connections',
-      'workload_revocation_state','workload_certificate_revocations'];
+      'workload_revocation_state','workload_certificate_revocations','lab_telemetry_batches','lab_import_receipts','lab_query_receipts'];
     const result = await this.pool.query<{ name: string; present: boolean }>(
       'SELECT name,to_regclass(name) IS NOT NULL AS present FROM unnest($1::text[]) AS name', [required]);
     if (result.rows.length !== required.length || result.rows.some(row => !row.present)) {

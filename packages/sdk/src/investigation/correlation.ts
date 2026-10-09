@@ -8,6 +8,11 @@ function securityResults(evidence: InvestigationEvidence): Array<Record<string, 
 }
 
 export function correlateEvidence(evidence: InvestigationEvidence): InvestigationVerdict {
+  if (evidence.provenance.adapter !== 'google-chronicle') return {
+    incidentId: evidence.incidentId, taskId: evidence.taskId, verdict: 'INSUFFICIENT_EVIDENCE',
+    evidenceIds: [evidence.evidenceId], policyVersion: 'gss.lab-metadata-only.v1',
+    rationale: 'Lab event metadata does not establish a security verdict.', createdAt: new Date().toISOString(),
+  };
   const findings = securityResults(evidence);
   const highFindings = findings.filter(item => ['HIGH', 'CRITICAL'].includes(String(item.severity).toUpperCase()));
   const explicitlyBenign = findings.length > 0 && findings.every(item =>

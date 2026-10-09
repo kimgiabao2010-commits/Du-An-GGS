@@ -7,12 +7,13 @@ const targets = {
   worker: 'services/cli-worker/src/main.ts',
   ide: 'services/ide-reasoning/src/main.ts',
   siem: 'services/siem-worker/src/main.ts',
-  smoke: 'tests/e2e/test_closed_loop.ts'
+  smoke: 'tests/e2e/test_closed_loop.ts',
+  lab: 'services/standalone/src/lab-cli.ts'
 };
 const target = targets[process.argv[2]];
 if (!target) throw new Error('Unknown runtime target');
 const root = fileURLToPath(new URL('../', import.meta.url));
-const child = spawn(process.execPath, ['--loader', 'ts-node/esm', resolve(root, target)], {
+const child = spawn(process.execPath, ['--loader', 'ts-node/esm', resolve(root, target), ...process.argv.slice(3)], {
   cwd: root, stdio: 'inherit', windowsHide: true,
   env: { ...process.env, TS_NODE_TRANSPILE_ONLY: 'true', TS_NODE_PREFER_TS_EXTS: 'true' }
 });

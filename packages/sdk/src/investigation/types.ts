@@ -13,7 +13,7 @@ export interface InvestigationRequest {
   limit?: number;
 }
 
-export interface EvidenceProvenance {
+export interface ChronicleEvidenceProvenance {
   adapter: 'google-chronicle';
   adapterVersion: 'v1';
   queryHash: string;
@@ -24,6 +24,16 @@ export interface EvidenceProvenance {
   truncated: boolean;
   redaction: 'ALLOWLISTED_FIELDS_ONLY';
 }
+
+export interface LabEvidenceProvenance extends Omit<ChronicleEvidenceProvenance, 'adapter'> {
+  schemaVersion: 'gss.evidence-provenance.v2';
+  adapter: 'lab-windows-events';
+  sourceKind: 'LAB_LIVE' | 'REPLAY';
+  collectedAt: string;
+  artifactHash: string;
+  artifactRef: string;
+}
+export type EvidenceProvenance = ChronicleEvidenceProvenance | LabEvidenceProvenance;
 
 export interface InvestigationEvidence {
   evidenceId: string;
@@ -74,7 +84,7 @@ export function isInvestigationEvidence(
     !Array.isArray(evidence.eventIds) || evidence.eventIds.some(id => typeof id !== 'string' || !id) ||
     new Set(evidence.eventIds).size !== evidence.eventIds.length ||
     !Array.isArray(evidence.events) || evidence.events.some(event => !event || typeof event !== 'object' || Array.isArray(event)) ||
-    !provenance || provenance.adapter !== 'google-chronicle' || provenance.adapterVersion !== 'v1' ||
+    !provenance || typeof provenance.adapter !== 'string' || !['google-chronicle', 'lab-windows-events'].includes(provenance.adapter) || provenance.adapterVersion !== 'v1' ||
     typeof provenance.queryHash !== 'string' || !/^[a-f0-9]{64}$/i.test(provenance.queryHash) ||
     typeof provenance.sourceInstance !== 'string' || !provenance.sourceInstance ||
     !validIsoTimestamp(provenance.queriedAt) || !provenance.timeRange ||
@@ -83,6 +93,13 @@ export function isInvestigationEvidence(
     !Number.isSafeInteger(provenance.resultCount) || Number(provenance.resultCount) < 0 ||
     provenance.resultCount !== evidence.events.length || typeof provenance.truncated !== 'boolean' ||
     provenance.redaction !== 'ALLOWLISTED_FIELDS_ONLY') return false;
+  if (provenance.adapter === 'lab-windows-events') {
+    const lab = provenance as Partial<LabEvidenceProvenance>;
+    if (lab.schemaVersion !== 'gss.evidence-provenance.v2' || typeof lab.sourceKind !== 'string' || !['LAB_LIVE', 'REPLAY'].includes(lab.sourceKind) ||
+        !validIsoTimestamp(lab.collectedAt) || typeof lab.artifactHash !== 'string' || !/^[a-f0-9]{64}$/.test(lab.artifactHash) ||
+        lab.artifactRef !== `artifact://lab/${lab.artifactHash}.json` || evidence.eventIds.length !== evidence.events.length) return false;
+  }
+  if (provenance.adapter === 'google-chronicle' && ('sourceKind' in provenance || 'schemaVersion' in provenance)) return false;
   return true;
 }
 

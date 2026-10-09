@@ -8,6 +8,7 @@ const roles = new Set(['SOC_ANALYST','SOC_LEAD','CONTROL_OPERATOR','SECURITY_ADM
 const deny = (message: string, statusCode = 403) => Object.assign(new Error(message), { statusCode });
 export function authorizeOperator(identity: OperatorIdentity, method: string, path: string): void {
   const read = method === 'GET';
+  if (path.startsWith('/control/v1/lab/') || path.endsWith('/lab-investigations')) throw deny('service_authority_required');
   if(path==='/control/v1/workload-certificates/check')throw deny('service_authority_required');
   if(path==='/control/v1/workload-certificates/revocations' &&
     (read?!['SECURITY_ADMIN','AUDITOR'].includes(identity.role):identity.role!=='SECURITY_ADMIN'))throw deny('role_denied');

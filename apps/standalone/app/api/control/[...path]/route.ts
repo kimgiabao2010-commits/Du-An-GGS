@@ -10,7 +10,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
   if (!claims) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
   const segments = (await context.params).path;
   const path = segments.join('/');
-  const readAllowed = ['approvals','audit','workers','runtime-state'].includes(path);
+  const readAllowed = ['approvals','audit','workers','runtime-state'].includes(path) || /^cases\/[a-zA-Z0-9_-]{1,128}\/lab-report$/.test(path);
   const writeAllowed = path === 'approvals' || /^approvals\/APR-[a-f0-9]{32}\/decision$/.test(path);
   if (request.method === 'GET' ? !readAllowed : !writeAllowed) return NextResponse.json({ error: 'Route denied' }, { status: 403 });
   if (request.method !== 'GET') {

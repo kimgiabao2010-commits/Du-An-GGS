@@ -10,3 +10,4 @@ export * from './identity-store.js';
 export * from './model-budget-store.js';
 export * from './worker-presence-store.js';
 export * from './workload-revocation-store.js';
+export * from './lab-telemetry-store.js';

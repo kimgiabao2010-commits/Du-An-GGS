@@ -18,6 +18,27 @@ test('anonymous cannot render either protected workspace', async ({ page }) => {
     await expect(page.getByRole('heading', { name: 'Sign in to continue.' })).toBeVisible();
   }
 });
+test('lab report desk validates input and shows unavailable authority without fabricated timeline',async({page,context})=>{
+  await identity(context,'SECURITY_ADMIN');await page.goto('/standalone/lab');
+  await expect(page.getByRole('heading',{name:'Lab evidence',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Load report',exact:true}).click();
+  await expect(page.locator('#lab-error[role="alert"]')).toContainText('valid case ID');await expect(page.getByLabel('Case ID',{exact:true})).toBeFocused();
+  await page.getByLabel('Case ID',{exact:true}).fill('LABCASE-unavailable');await page.getByRole('button',{name:'Load report',exact:true}).click();
+  await expect(page.locator('#lab-error[role="alert"]')).toContainText('unavailable');await expect(page.locator('.lab-timeline')).toHaveCount(0);
+});
+test('lab report contract keeps replay labels, evidence links and mobile/reduced-motion layout',async({page,context},testInfo)=>{
+  await identity(context,'SECURITY_ADMIN');await page.setViewportSize({width:375,height:812});await page.emulateMedia({reducedMotion:'reduce'});
+  await page.route('**/api/control/cases/LABCASE-fixture/lab-report',route=>route.fulfill({json:{report:{schemaVersion:'gss.lab-report.v1',caseId:'LABCASE-fixture',
+    verdict:'INSUFFICIENT_EVIDENCE',frontierVersion:1,limitations:['Browser fixture only; NOT live evidence.'],
+    provenance:{sourceKind:'REPLAY',sourceInstance:'local-windows',artifactHash:'a'.repeat(64),collectedAt:'2026-10-09T01:00:00Z',queriedAt:'2026-10-09T02:00:00Z',truncated:true},
+    timeline:[{eventId:'fixture-event',evidenceId:'fixture-evidence',event:{eventTime:'2026-10-09T00:00:00Z',provider:'Fixture',channel:'System',eventCode:1001}}]}}}));
+  await page.goto('/standalone/lab');await page.getByLabel('Case ID',{exact:true}).fill('LABCASE-fixture');await page.getByRole('button',{name:'Load report',exact:true}).click();
+  await expect(page.locator('.lab-timeline')).toContainText('fixture-evidence');await expect(page.getByText('REPLAY · local-windows',{exact:true})).toBeVisible();
+  await expect(page.getByText('Truncated; not exhaustive',{exact:true})).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await page.screenshot({path:testInfo.outputPath('lab-report-mobile.png'),fullPage:true});
+  await page.setViewportSize({width:812,height:375});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+});
 test('real local login rejects wrong password then grants admin workspaces', async ({ page, context }) => {
   await page.goto('/login');
   await page.getByLabel('Password', { exact: true }).fill('wrong');

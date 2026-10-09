@@ -13,6 +13,7 @@ const navigation = [
   { href: '/standalone', label: 'SOC Console', icon: LayoutDashboard },
   { href: '/standalone/tasks', label: 'Cases & Tasks', icon: ListChecks },
   { href: '/standalone/evidence', label: 'Evidence', icon: FileCheck2 },
+  { href: '/standalone/lab', label: 'Lab telemetry', icon: RadioTower },
 ];
 
 const utilities = [

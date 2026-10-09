@@ -10,6 +10,10 @@ const dryRun = process.argv.includes('--dry-run');
 const now = Date.now();
 const root = fileURLToPath(new URL('../', import.meta.url));
 const databaseUrl = process.env.DATABASE_URL?.trim();
+const socProfile = process.env.GSS_SOC_PROFILE ?? 'staging';
+if (!['lab','replay','staging'].includes(socProfile) || (process.env.GSS_RUNTIME_ENV==='staging' && socProfile!=='staging')) {
+  throw new Error('Invalid SOC profile or staging downgrade attempt');
+}
 const secret = process.env.ASQ_JWT_SECRET && process.env.ASQ_JWT_SECRET.length >= 32
   ? process.env.ASQ_JWT_SECRET : randomBytes(32).toString('base64url');
 const controlPlaneToken = process.env.GSS_CONTROL_PLANE_TOKEN && process.env.GSS_CONTROL_PLANE_TOKEN.length >= 32
@@ -81,11 +85,14 @@ if (occupied.length && !dryRun) {
 
 if (dryRun) {
   console.log('\nGSS local stack check');
+  console.log('SOC profile: '+socProfile+'; '+(socProfile==='staging'?'Chronicle live gate required.':'external LLM disabled; lab evidence is not Chronicle.'));
   console.log('URL: http://localhost:3000');
-  console.log(process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY ? 'OK: LLM provider configured.' : 'WARNING: no LLM provider; deterministic read-only intents still work.');
+  console.log(socProfile!=='staging'?'BLOCKED: external LLM disabled by lab/replay policy; local model not evaluated.':
+    process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY ? 'OK: LLM provider configured.' : 'WARNING: no LLM provider; deterministic read-only intents still work.');
   console.log('OK: will start ' + services.map(([name]) => name).join(', '));
   console.log(`OK: IDE read-only root configured (${runtimeEnv.GSS_IDE_REPOSITORY_ROOTS === root ? 'repository root' : 'custom allowlist'}).`);
-  console.log(process.env.GSS_CHRONICLE_PROJECT && process.env.GSS_CHRONICLE_LOCATION && process.env.GSS_CHRONICLE_INSTANCE && process.env.GSS_CHRONICLE_ENDPOINT
+  console.log(socProfile!=='staging'?'NOT RUN: Chronicle worker disabled in lab/replay; use explicit authorized telemetry CLI.':
+    process.env.GSS_CHRONICLE_PROJECT && process.env.GSS_CHRONICLE_LOCATION && process.env.GSS_CHRONICLE_INSTANCE && process.env.GSS_CHRONICLE_ENDPOINT
     ? 'OK: Chronicle read-only worker configured.' : 'WARNING: Chronicle worker will remain disabled until its four GSS_CHRONICLE_* settings are configured.');
   console.log(occupied.length ? `WARNING: occupied ports: ${occupied.join(', ')}.` : 'OK: ports 3000, 4000 and 4100 are available.');
   console.log(databaseUrl ? 'OK: PostgreSQL persistence configured; migrations will run before startup.' :
@@ -124,6 +131,7 @@ if (workspaceBuild.status !== 0) {
 }
 
 console.log('\nGSS local stack');
+console.log('SOC profile: '+socProfile+'; telemetry lab import/run is explicit, never automatic.');
 console.log('URL:      http://localhost:3000');
 console.log('Username: ' + username);
 console.log('Password: ' + password + ' (insecure local demo only)');

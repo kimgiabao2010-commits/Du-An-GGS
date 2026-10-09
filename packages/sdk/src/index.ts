@@ -14,6 +14,7 @@ export { ASQgRPCClient } from './transport/grpc-client.js';
 export type { AutonomyLevel } from './modules/autonomy-manager.js';
 export * from './investigation/types.js';
 export * from './investigation/correlation.js';
+export * from './investigation/lab-telemetry.js';
 export * from './runtime/contracts.js';
 export * from './runtime/investigation-loop.js';
 export * from './runtime/model-budget.js';

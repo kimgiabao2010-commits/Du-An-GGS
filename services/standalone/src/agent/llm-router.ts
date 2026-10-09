@@ -1,6 +1,6 @@
 import { OpenAI } from 'openai';
 import { ContextBudgeter } from '@asq/guardrails';
-import { canonicalJson, sha256Canonical, type CapabilityAction, type TaskTarget, type ModelCallGate } from '@asq/sdk';
+import { canonicalJson, sha256Canonical, socProfile, type CapabilityAction, type TaskTarget, type ModelCallGate } from '@asq/sdk';
 import { randomUUID } from 'node:crypto';
 import { providerUsage } from './model-usage.js';
 
@@ -41,6 +41,8 @@ function deterministicSiemIntent(prompt: string): RouterDecision | null {
   const indicatorValue = ip ?? hash ?? domain;
   const indicatorType = ip ? 'IP' : hash ? 'HASH' : domain ? 'DOMAIN' : null;
   if (!indicatorValue || !indicatorType) return null;
+  if (socProfile() !== 'staging') return { agent: 'system',
+    instruction: 'LAB_SIEM_MANUAL: Use authorized lab:run for persisted telemetry. Chronicle is not used in lab/replay; no provider query dispatched.' };
   const end = new Date();
   const start = new Date(end.valueOf() - 24 * 60 * 60 * 1000);
   return { agent: 'siem', action: 'search_siem', instruction: `Search Chronicle for ${indicatorType}`,
@@ -53,6 +55,7 @@ export class LlmRouter {
   private modelName = process.env.ASQ_ROUTER_MODEL || (!process.env.OPENAI_API_KEY && process.env.GROQ_API_KEY ? 'llama-3.3-70b-versatile' : 'gpt-5.6-sol');
 
   constructor() {
+    if (socProfile() !== 'staging') { this.openai = null; return; }
     const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
     this.openai = apiKey ? new OpenAI({
       apiKey,
@@ -70,7 +73,9 @@ export class LlmRouter {
 
     if (!this.openai) return {
       agent: 'system',
-      instruction: 'LLM_UNAVAILABLE: Configure OPENAI_API_KEY or GROQ_API_KEY. No worker task was dispatched.',
+      instruction: socProfile() === 'staging'
+        ? 'LLM_UNAVAILABLE: Configure OPENAI_API_KEY or GROQ_API_KEY. No worker task was dispatched.'
+        : 'LOCAL_REASONING_UNAVAILABLE: Lab/replay disables external model calls. Use the authorized telemetry CLI; no worker task was dispatched.',
     };
 
     const startedAt = Date.now();

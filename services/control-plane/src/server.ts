@@ -2,6 +2,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { createServer as createSecureServer } from 'node:https';
 import { createHash, createPrivateKey, randomUUID, timingSafeEqual, type KeyObject } from 'node:crypto';
 import { Pool } from 'pg';
+import { PostgresLabTelemetryStore, labPolicyFromEnvironment } from '@asq/persistence';
+import { socProfile, type InvestigationRequest } from '@asq/sdk';
 import { OidcAuthority, authorizeOperator, type OperatorIdentity } from './identity.js';
 import {
   RESULT_SCHEMA_VERSION,
@@ -141,9 +143,11 @@ export class ControlPlaneServer {
   private recoveringTimeouts = false;
   private readonly peerPolicy:WorkloadPeerPolicy;
   private readonly workloadRevocations:PostgresWorkloadRevocationStore;
+  private readonly labTelemetry: PostgresLabTelemetryStore;
 
   public constructor(private readonly port = Number(process.env.CONTROL_PLANE_PORT ?? 4100)) {
     initializeTracing();
+    socProfile();
     this.peerPolicy=new WorkloadPeerPolicy();
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) throw new Error('DATABASE_URL is required for the Control Plane');
@@ -158,6 +162,7 @@ export class ControlPlaneServer {
     this.queue = new PostgresDispatchQueue(this.pool);
     this.identities = new PostgresIdentityStore(this.pool);
     this.workloadRevocations=new PostgresWorkloadRevocationStore(this.pool);
+    this.labTelemetry = new PostgresLabTelemetryStore(this.pool, labPolicyFromEnvironment());
     this.modelBudget = new PostgresModelBudgetStore(this.pool,modelBudgetPolicyFromEnvironment());
     if (process.env.GSS_OIDC_ISSUER || process.env.GSS_RUNTIME_ENV === 'staging') this.oidc = new OidcAuthority(this.pool);
     this.investigations = new PostgresInvestigationStore(this.pool);
@@ -255,6 +260,25 @@ export class ControlPlaneServer {
         const input = await body(request);
         await this.identities.revoke(identity.issuer, requiredString(input.subject,'subject'), actor(request));
         return json(response, 200, { revoked: true });
+      }
+      if (method === 'POST' && url.pathname === '/control/v1/lab/batches') {
+        if (!authorized(request, this.internalToken)) return json(response,403,{error:'service_authority_required'});
+        const input = await body(request);
+        if (request.headers['idempotency-key'] && request.headers['idempotency-key'] !== input.idempotencyKey) return json(response,422,{error:'idempotency_header_body_mismatch'});
+        const receipt = await this.labTelemetry.importBatch(input as unknown as {batch:unknown;checksum:string;idempotencyKey:string}, actor(request));
+        return json(response, receipt.replay ? 200 : 201, receipt);
+      }
+      const labMatch = url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/lab-investigations$/);
+      if (method === 'POST' && labMatch) {
+        if (!authorized(request, this.internalToken)) return json(response,403,{error:'service_authority_required'});
+        const input = await body(request), caseId = decodeURIComponent(labMatch[1]);
+        if (request.headers['idempotency-key'] && request.headers['idempotency-key'] !== input.idempotencyKey) return json(response,422,{error:'idempotency_header_body_mismatch'});
+        const receipt = await this.labTelemetry.investigate(requiredString(input.batchHash,'batchHash'), {
+          incidentId: caseId, taskId: 'authority-derived', idempotencyKey: requiredString(input.idempotencyKey,'idempotencyKey'),
+          requestedBy: actor(request), indicator: input.indicator as InvestigationRequest['indicator'],
+          timeRange: input.timeRange as InvestigationRequest['timeRange'], limit: input.limit as number | undefined,
+        }, actor(request));
+        return json(response, receipt.replay ? 200 : 201, receipt);
       }
       if(method==='POST' && url.pathname==='/control/v1/workload-certificates/check') {
         if(!authorized(request,this.internalToken))return json(response,403,{error:'service_authority_required'});
@@ -405,6 +429,8 @@ export class ControlPlaneServer {
       if (method === 'POST' && url.pathname === '/control/v1/model-usage') return await this.recordModelUsage(request, response);
       const frontierMatch = url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/frontier$/);
       if (method === 'GET' && frontierMatch) return await this.getFrontier(decodeURIComponent(frontierMatch[1]), response);
+      const labReportMatch = url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/lab-report$/);
+      if (method === 'GET' && labReportMatch) return json(response,200,await this.labTelemetry.report(decodeURIComponent(labReportMatch[1])));
       if (method === 'POST' && url.pathname === '/control/v1/approvals') return await this.createApproval(request, response);
       const approvalMatch = url.pathname.match(/^\/control\/v1\/approvals\/([^/]+)\/decision$/);
       if (method === 'POST' && approvalMatch) return await this.approve(decodeURIComponent(approvalMatch[1]), request, response);
