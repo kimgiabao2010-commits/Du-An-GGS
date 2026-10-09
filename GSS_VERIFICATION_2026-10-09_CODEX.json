@@ -191,8 +191,13 @@
     "total": 254
   },
   "publication": {
-    "status": "PREPARED",
-    "request": "User requested immediate push before the scheduled checkpoint; success requires remote SHA verification.",
+    "status": "PUSHED",
+    "request": "User requested immediate push before the scheduled checkpoint.",
+    "implementationRevision": "506b1f4e464e35d4dc29e51a2596e9fe5d9e0cba",
+    "remoteVerifiedAt": "2026-10-09T10:05:06+07:00",
+    "remoteBranch": "refs/heads/main",
+    "remoteShaMatchesImplementation": true,
+    "receipt": "Publication receipt is a separate documentation-only commit; consult Git history for its SHA. Remote CI not verified.",
     "scheduledAt": "2026-10-09T11:20:00+07:00",
     "baselineRevision": "7bbd8adf87bd58778a9af8c82851646211ed41ae"
   },

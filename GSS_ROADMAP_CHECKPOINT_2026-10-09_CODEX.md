@@ -37,7 +37,9 @@ Runtime DB chỉ được kiểm tra SELECT 1, **không migrate runtime schema t
 
 ## GitHub checkpoint
 
-Status: **PREPARED — người dùng yêu cầu push ngay, trước 11:20**. Branch `main`; origin `kimgiabao2010-commits/Du-An-GGS`. HEAD/remote trước publication: `7bbd8adf87bd58778a9af8c82851646211ed41ae`; `push --dry-run` không cập nhật remote và không thay actual push proof. Đã đối chiếu lại source fingerprint, hash của 357 file trong allowlist và hash log verification: khớp snapshot PASS; không chạy lại test khi source không đổi. Chỉ cập nhật trạng thái publication trong tài liệu.
+Status: **PUSHED — người dùng yêu cầu push ngay, trước 11:20**. Branch `main`; origin `kimgiabao2010-commits/Du-An-GGS`. Implementation commit: [`506b1f4e464e35d4dc29e51a2596e9fe5d9e0cba`](https://github.com/kimgiabao2010-commits/Du-An-GGS/commit/506b1f4e464e35d4dc29e51a2596e9fe5d9e0cba). Non-force push thành công; tại **10:05:06 UTC+7**, `git ls-remote origin refs/heads/main` khớp local HEAD. Báo cáo receipt này là commit docs riêng; SHA cuối xem Git history. Remote CI chưa được xác minh.
+
+Đã đối chiếu lại source fingerprint, hash của 357 file trong allowlist (trước chỉnh trạng thái publication trong docs) và hash log verification: khớp snapshot PASS; không chạy lại test khi source không đổi. Chỉ cập nhật trạng thái publication trong tài liệu. 25 file private/generated/cache được loại khỏi commit và giữ nguyên local; .env/runtime data không publish. 212 file sinh cũ cạnh TypeScript được xóa có chủ đích để tránh runtime divergence; không xóa dữ liệu riêng của người dùng.
 
 Tại checkpoint: secret/diff review → cập nhật trạng thái gitlog/report → stage đúng source/tests/migrations/config/docs đã verify → commit → non-force push → xác nhận remote SHA → báo hash, manifest và blockers. Nếu remote thay đổi/auth bị từ chối thì giữ commit local và báo BLOCKED, không force/rebase/reset để che conflict. Log/manifest chưa có trong GitHub không được nói đã publish.
 
