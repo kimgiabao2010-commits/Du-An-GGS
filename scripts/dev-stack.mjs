@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { connect } from 'node:net';
 import { serviceEnvironment } from './service-environment.mjs';
+import {startManagedModel,managedModelConfig} from './local-model-runtime.mjs';
 
 const dryRun = process.argv.includes('--dry-run');
 const now = Date.now();
@@ -41,6 +42,7 @@ const runtimeEnv = {
   ASQ_WS_URL: process.env.ASQ_WS_URL || 'ws://127.0.0.1:4000',
   ASQ_LOCAL_RUNTIME: 'true',
   GSS_REQUIRE_WORKER_PRESENCE: 'true',
+  GSS_BOUNDED_DISPATCH: 'true',
   CONTROL_PLANE_URL: process.env.CONTROL_PLANE_URL || 'http://127.0.0.1:4100',
   GSS_CONTROL_PLANE_TOKEN: controlPlaneToken,
   GSS_UI_GATEWAY_TOKEN: randomBytes(32).toString('base64url'),
@@ -53,6 +55,7 @@ const runtimeEnv = {
   ASQ_IDE_TOKEN: token('ide-worker-agent', 'IDE_AGENT'),
   ASQ_SIEM_TOKEN: token('siem-worker-agent', 'SIEM'),
 };
+const managedConfig=managedModelConfig(runtimeEnv);
 
 const tsRuntime = ['--loader', 'ts-node/esm'];
 const nextBin = resolve(root, 'node_modules/next/dist/bin/next');
@@ -92,6 +95,8 @@ if (dryRun) {
     'BLOCKED: local conversation disabled; configure a reviewed llama.cpp model to enable it.'):
     process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY ? 'OK: LLM provider configured.' : 'WARNING: no LLM provider; deterministic read-only intents still work.');
   console.log('OK: will start ' + services.map(([name]) => name).join(', '));
+  console.log('Dispatch: durable single-investigation slot; max 32 pending logical work items.');
+  console.log(managedConfig?'Local model: opt-in pinned owned CPU runtime; integrity/RAM/auth not yet verified.':'Local model: unmanaged/disabled; no automatic download.');
   console.log(`OK: IDE read-only root configured (${runtimeEnv.GSS_IDE_REPOSITORY_ROOTS === root ? 'repository root' : 'custom allowlist'}).`);
   console.log(socProfile!=='staging'?'NOT RUN: Chronicle worker disabled in lab/replay; use explicit authorized telemetry CLI.':
     process.env.GSS_CHRONICLE_PROJECT && process.env.GSS_CHRONICLE_LOCATION && process.env.GSS_CHRONICLE_INSTANCE && process.env.GSS_CHRONICLE_ENDPOINT
@@ -141,13 +146,15 @@ console.log('Storage:  PostgreSQL (migrations verified)');
 console.log('These credentials are only for this local runtime.\n');
 
 const children = new Set();
+let managedModel;
 let stopping = false;
 function stop(exitCode = 0) {
   if (stopping) return;
   stopping = true;
   process.exitCode = exitCode;
   for (const child of children) child.kill('SIGTERM');
-  setTimeout(() => process.exit(exitCode), 1000);
+  if(managedModel)void managedModel.close().then(()=>process.exit(exitCode),()=>process.exit(1));
+  else setTimeout(() => process.exit(exitCode), 1000);
 }
 
 for (const [name, command, args, cwd] of services) {
@@ -171,7 +178,7 @@ for (const [name, command, args, cwd] of services) {
     }
   });
   if (name === 'Control Plane') {
-    const deadline = Date.now() + 20_000;
+    const deadline = Date.now() + 60_000;
     let ready = false;
     while (Date.now() < deadline && !stopping) {
       try {
@@ -182,6 +189,13 @@ for (const [name, command, args, cwd] of services) {
       await new Promise(resolve => setTimeout(resolve, 200));
     }
     if (!ready) { console.error('Control Plane did not become ready; stopping the stack.'); stop(1); break; }
+    // Authority boots before native inference; do not make its cold startup compete with a4GiB model.
+    if(managedConfig){
+      try{managedModel=await startManagedModel(runtimeEnv);runtimeEnv.GSS_LOCAL_MODEL_API_KEY=managedModel.apiKey;
+        managedModel.child.once('exit',()=>{if(!stopping){console.error('Owned local model exited; stopping stack.');stop(1);}});
+        console.log('Local model: authenticated CPU Conversation only; unpromoted, SOC quality NOT RUN.');}
+      catch{console.error('Local model preflight/start failed; stopping owned stack, no fallback.');stop(1);break;}
+    }
   }
 }
 

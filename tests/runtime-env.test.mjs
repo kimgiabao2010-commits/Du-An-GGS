@@ -30,6 +30,26 @@ test('launcher scopes durable result journals to distinct workers, never UI or a
     assert.equal(env.GSS_WORKER_SPOOL_DIR, expected[name] ? resolve(parent.GSS_DATA_DIR, 'worker-spool', expected[name]) : undefined);
   }
 });
+
+test('only Control Plane receives bounded-dispatch authority; environment cannot grant it to UI/workers',()=>{
+  const parent={GSS_BOUNDED_DISPATCH:'true'};
+  for(const name of ['Control Plane','Command Center','CLI worker','IDE agent','SIEM worker','Web UI'])
+    assert.equal(serviceEnvironment(parent,name).GSS_BOUNDED_DISPATCH,name==='Control Plane'?'true':undefined);
+});
+test('ATTACK catalog path/pin are Control Plane-only and cannot leak to UI/worker/conversation environments',()=>{
+  const parent={GSS_ATTACK_CATALOG_FILE:'private-catalog.json',GSS_ATTACK_CATALOG_SHA256:'a'.repeat(64)};
+  for(const name of ['Control Plane','Command Center','CLI worker','IDE agent','SIEM worker','Web UI'])
+    for(const key of Object.keys(parent))assert.equal(serviceEnvironment(parent,name)[key],name==='Control Plane'?parent[key]:undefined);
+});
+test('local model bearer belongs only to Conversation; native candidate control remains launcher-only',()=>{
+  const parent={GSS_LOCAL_MODEL_API_KEY:'fixture-provider-key',GSS_LOCAL_MODEL_MANAGED:'true',
+    GSS_LOCAL_MODEL_CANDIDATE_FILE:'private-assets',GSS_LOCAL_MODEL_CANDIDATE_SHA256:'a'.repeat(64),GSS_LOCAL_MODEL_ASSET_DIR:'private-models'};
+  for(const name of ['Control Plane','Command Center','CLI worker','IDE agent','SIEM worker','Web UI']){
+    const env=serviceEnvironment(parent,name);
+    assert.equal(env.GSS_LOCAL_MODEL_API_KEY,name==='Command Center'?parent.GSS_LOCAL_MODEL_API_KEY:undefined);
+    for(const key of ['GSS_LOCAL_MODEL_MANAGED','GSS_LOCAL_MODEL_CANDIDATE_FILE','GSS_LOCAL_MODEL_CANDIDATE_SHA256','GSS_LOCAL_MODEL_ASSET_DIR'])assert.equal(env[key],undefined);
+  }
+});
 test('verify-only workers receive no signing secret, gateway or artifact cloud credentials', () => {
   const parent = { ASQ_JWT_SECRET:'secret',GSS_TASK_PUBLIC_KEY_BASE64:'public',GSS_TASK_PRIVATE_KEY_BASE64:'private',
     GSS_TASK_KEY_ID:'test',GSS_UI_GATEWAY_TOKEN:'gateway',AWS_SECRET_ACCESS_KEY:'cloud-secret',GSS_S3_BUCKET:'bucket' };

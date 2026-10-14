@@ -18,6 +18,8 @@ export * from './investigation/evidence-timeline.js';
 export * from './investigation/evidence-entities.js';
 export * from './investigation/case-entities.js';
 export * from './investigation/offline-intel.js';
+export * from './investigation/attack-knowledge.js';
+export * from './investigation/attack-annotations.js';
 export * from './investigation/case-timeline.js';
 export * from './investigation/lab-telemetry.js';
 export * from './investigation/soc-evidence-policy.js';

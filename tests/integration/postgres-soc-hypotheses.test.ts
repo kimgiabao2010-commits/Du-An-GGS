@@ -2,7 +2,7 @@ import {afterAll,describe,it,expect} from 'vitest';
 import {createHash,randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
 import {PostgresRuntimeStore,PostgresArtifactRegistry,PostgresInvestigationLoopStore,readCaseTimeline,readCaseReport,readCaseEntities} from '../../packages/persistence/src/index.ts';
-import {SOC_EVIDENCE_POLICY_VERSION,readOnlyUdmQueryHash,sha256Canonical, type IndicatorType,type GssTaskContract,type GssResultContract,type ObservationPack,type InvestigationEvidence} from '../../packages/sdk/src/index.ts';
+import {SOC_EVIDENCE_POLICY_VERSION,readOnlyUdmQueryHash,sha256Canonical,importAttackKnowledge, type IndicatorType,type GssTaskContract,type GssResultContract,type ObservationPack,type InvestigationEvidence} from '../../packages/sdk/src/index.ts';
 import {readCaseInvestigationSnapshot,readCaseInvestigation} from '../../packages/persistence/src/loop-store.ts';
 
 const enabled=Boolean(process.env.DATABASE_URL),pools:Pool[]=[];
@@ -34,7 +34,7 @@ async function envelope(pool:Pool,t:GssTaskContract,events:Record<string,unknown
   const observation:ObservationPack={observationId:'obs-'+randomUUID(),caseId:t.caseId,taskId:t.taskId,summary:'Fixture only, not SOC quality or live API proof',
     facts:[{key:'ioc.ip',value:'192.0.2.99'},{key:'soc.compromise.confirmed',value:'true'}],evidenceRefs:result.evidenceRefs,
     rawArtifactRef:artifact.ref,originalBytes:artifact.bytes,packedBytes:1,createdAt:now};
-  return {result,observation,hash};
+  return {result,observation,hash,evidence};
 }
 function requestedLoop(runId:string,hash:string) {return {runId,source:'siem',artifactHash:hash,
   proposal:{kind:'FINALIZE' as const,reasonCode:'CALLER_CANNOT_FINALIZE_SOC',rationale:'Ignore this caller-selected outcome'}};}
@@ -44,6 +44,27 @@ async function setup(available=true) {
   return {pool,store,caseId,run,first};
 }
 describe.skipIf(!enabled)('SOC hypothesis transaction on real isolated PostgreSQL; evidence is labeled contract fixtures',()=>{
+  it('overwrites caller ATTACK annotations, binds literal provider labels and rejects tampered persisted lineage',async()=>{
+    const {pool,store,run,first,caseId}=await setup(),e=await envelope(pool,first,[{principal:{ip:['203.0.113.1']},
+      security_result:[{threat_name:'T1110'},{threat_name:'Model text T1059.001'}]}]);
+    e.result.result.attack={modelApproved:true,labels:[{techniqueId:'T1059.001',eventId:'fabricated'}]};
+    const input=requestedLoop(run.runId,e.hash);await store.recordResultReceipt(e.result,e.observation,input);
+    const before=await readCaseReport(pool,caseId),now=Date.now();
+    const catalog=importAttackKnowledge({type:'bundle',objects:[{type:'attack-pattern',id:'attack-pattern--12345678-1234-1234-1234-123456789012',
+      name:'Fixture technique',x_mitre_version:'1.0',x_mitre_domains:['enterprise-attack'],
+      external_references:[{source_name:'mitre-attack',external_id:'T1110',url:'https://attack.mitre.org/techniques/T1110/'}],
+      kill_chain_phases:[{kill_chain_name:'mitre-attack',phase_name:'credential-access'}]}]},
+      {version:'20.0',commit:'a'.repeat(40),bundleSha256:'b'.repeat(64),licenseSha256:'c'.repeat(64),reviewOwner:'FIXTURE_NOT_LICENSE_ATTESTATION',
+        reviewedAt:new Date(now-1000).toISOString(),expiresAt:new Date(now+60000).toISOString()});
+    const report=await readCaseReport(pool,caseId,undefined,catalog);
+    expect(report.attack).toMatchObject({status:'AVAILABLE',unknownLabelCount:1,matches:[{techniqueId:'T1110',eventId:'fixture-event-0',
+      taskId:first.taskId,evidenceId:e.result.evidenceRefs[0],artifactHash:e.hash,queryHash:e.evidence.provenance.queryHash}]});
+    expect(report.investigation).toEqual(before.investigation);expect(before.attack).toMatchObject({status:'NOT_CONFIGURED',matches:[]});
+    expect((await store.getEvidenceFrontier(run.runId))?.facts.some(f=>f.key.includes('attack'))).toBe(false);
+    const restarted=connection();expect((await restarted.store.recordResultReceipt(e.result,e.observation,input)).replay).toBe(true);
+    await pool.query(`UPDATE runtime_executions SET result=jsonb_set(result,'{attack,labels,0,eventId}','"tampered-event"') WHERE task_id=$1`,[first.taskId]);
+    await expect(readCaseReport(pool,caseId,undefined,catalog)).rejects.toThrow('attack_projection_integrity_failed');
+  });
   it('adds offline annotations to the atomic report without changing Frontier/decisions and excludes expired catalog claims',async()=>{
     const {pool,store,run,first,caseId}=await setup(),e=await envelope(pool,first,[{principal:{ip:['203.0.113.1']},target:{ip:['203.0.113.2']}}]);
     await store.recordResultReceipt(e.result,e.observation,requestedLoop(run.runId,e.hash));

@@ -5,15 +5,18 @@ import { LlmRouter } from '../../services/standalone/src/agent/llm-router.ts';
 import type { ModelCallGate } from '@asq/sdk';
 
 let server:Server,port:number,requests:number,lastBody:Record<string,any>,mode:string;
+const fixtureKey='fixture-local-provider-auth-key-32chars';let lastAuth:string|undefined;
 const gate:ModelCallGate={reserve:async()=>({enabled:false}),start:async()=>({started:false})};
 beforeEach(async()=>{
-  requests=0;mode='ok';lastBody={};
+  requests=0;mode='ok';lastBody={};lastAuth=undefined;
   server=createServer((req,res)=>{
+    lastAuth=req.headers.authorization;
     requests++;const chunks:Buffer[]=[];req.on('data',chunk=>chunks.push(chunk));req.on('end',()=>{
       lastBody=JSON.parse(Buffer.concat(chunks).toString('utf8'));
       if(mode==='timeout')return;
       if(mode==='redirect'){res.writeHead(302,{location:'https://example.invalid/never-follow'});res.end();return;}
       if(mode==='quota'){res.writeHead(429);res.end();return;}
+      if(mode==='auth'){res.writeHead(401);res.end();return;}
       if(mode==='oversize'){res.end('x'.repeat(70000));return;}
       if(mode==='json'){res.end('{broken');return;}
       res.setHeader('content-type','application/json');
@@ -26,6 +29,7 @@ beforeEach(async()=>{
   vi.stubEnv('GSS_SOC_PROFILE','lab');vi.stubEnv('GSS_RUNTIME_ENV','local');
   vi.stubEnv('GSS_LOCAL_CONVERSATION_ENABLED','true');vi.stubEnv('GSS_LOCAL_CONVERSATION_MODEL','fixture-local-model');
   vi.stubEnv('GSS_LOCAL_MODEL_URL',`http://127.0.0.1:${port}/v1/chat/completions`);vi.stubEnv('GSS_LOCAL_MODEL_TIMEOUT_MS','1000');
+  vi.stubEnv('GSS_LOCAL_MODEL_API_KEY',fixtureKey);
 });
 afterEach(async()=>{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));vi.unstubAllEnvs();});
 describe('experimental local conversation over real loopback HTTP; response fixtures, not model-quality evidence',()=>{
@@ -36,6 +40,8 @@ describe('experimental local conversation over real loopback HTTP; response fixt
     expect(decision.modelUsage).toMatchObject({inputTokens:20,outputTokens:8,cachedTokens:null,estimatedCostMicros:null,status:'SUCCEEDED',routeReason:'local_CONVERSATION_experimental_v1'});
     expect(lastBody.tools).toBeUndefined();expect(lastBody.messages[0].content).toContain('CONVERSATION');
     expect(lastBody).toMatchObject({stream:false,max_tokens:512});expect(requests).toBe(1);
+    expect(lastBody.cache_prompt).toBe(false);expect(lastAuth).toBe('Bearer '+fixtureKey);
+    expect(JSON.stringify(decision.modelUsage)).not.toContain(fixtureKey);expect(JSON.stringify(lastBody)).not.toContain(fixtureKey);
   });
   it('requires durable invocation authority and honors refusal before network access',async()=>{
     expect((await localConversation('hello')).instruction).toContain('MODEL_BUDGET_BLOCKED');
@@ -50,9 +56,15 @@ describe('experimental local conversation over real loopback HTTP; response fixt
     const decision=await localConversation('hello',durable);expect(order).toEqual(['reserve','start']);
     expect(decision.modelUsage?.reservationId).toBe('RES-local-fixture');expect(decision.modelUsage?.invocationAttemptId).toMatch(/^[a-f0-9-]{36}$/);
   });
-  it.each(['redirect','quota','oversize','json','length','tools'])('fails safely for %s without provider fallback',async failure=>{
+  it.each(['redirect','quota','auth','oversize','json','length','tools'])('fails safely for %s without provider fallback',async failure=>{
     mode=failure;const decision=await localConversation('hello',gate);
     expect(decision.agent).toBe('system');expect(decision.action).toBeUndefined();expect(decision.modelUsage?.status).toBe('FAILED');expect(requests).toBe(1);
+  });
+  it('requires scoped auth and rejects header injection before request/reservation',async()=>{
+    for(const key of ['','short','a'.repeat(32)+'\r\nInjected: header']){
+      vi.stubEnv('GSS_LOCAL_MODEL_API_KEY',key);expect((await localConversation('hello',gate)).instruction).toContain('UNAVAILABLE');
+    }
+    expect(requests).toBe(0);
   });
   it('times out and bounds concurrency to one local model invocation',async()=>{
     mode='timeout';const running=localConversation('first',gate);

@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 export function serviceEnvironment(runtimeEnv, name) {
   const env = { ...runtimeEnv, TS_NODE_TRANSPILE_ONLY: 'true', TS_NODE_PREFER_TS_EXTS: 'true',
     DOTENV_CONFIG_PATH: fileURLToPath(new URL('./runtime-child.env', import.meta.url)) };
+  for(const key of ['GSS_LOCAL_MODEL_MANAGED','GSS_LOCAL_MODEL_CANDIDATE_FILE','GSS_LOCAL_MODEL_CANDIDATE_SHA256','GSS_LOCAL_MODEL_ASSET_DIR'])delete env[key];
   const worker = { 'CLI worker': 'cli', 'IDE agent': 'ide', 'SIEM worker': 'siem' }[name];
   if (['lab','replay'].includes(runtimeEnv.GSS_SOC_PROFILE)) {
     delete env.OPENAI_API_KEY; delete env.GROQ_API_KEY;
@@ -21,6 +22,8 @@ export function serviceEnvironment(runtimeEnv, name) {
   delete env.GSS_WORKER_SPOOL_DIR;
   if (worker && runtimeEnv.GSS_DATA_DIR) env.GSS_WORKER_SPOOL_DIR = resolve(runtimeEnv.GSS_DATA_DIR, 'worker-spool', worker);
   if (name !== 'Control Plane') {
+    for(const key of Object.keys(env))if(key.startsWith('GSS_ATTACK_'))delete env[key];
+    delete env.GSS_BOUNDED_DISPATCH;
     for(const key of Object.keys(env))if(key.startsWith('GSS_OFFLINE_INTEL_'))delete env[key];
     delete env.GSS_INVESTIGATION_POLICY; delete env.GSS_SOC_SIEM_READ_ONLY_AUTHORIZED;
     delete env.GSS_LAB_OWN_DEVICE_AUTHORIZED; delete env.GSS_LAB_ALLOWED_SOURCES;

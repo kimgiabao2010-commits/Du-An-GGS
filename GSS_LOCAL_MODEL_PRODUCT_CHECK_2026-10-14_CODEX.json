@@ -1,0 +1,97 @@
+{
+  "schemaVersion": "gss.launcher-check.v1",
+  "startedAt": "2026-10-14T11:08:38.404Z",
+  "status": "PASS",
+  "environment": "local isolated PostgreSQL schema, real launcher/UI/worker connections",
+  "taskExecution": "NOT RUN",
+  "chronicle": "NOT RUN",
+  "sandbox": "NOT RUN",
+  "modelInference": "PASS: ONE_SYNTHETIC_CONVERSATION_NOT_SOC_QUALITY",
+  "cleanup": "PASS: owned processes and isolated test schema only",
+  "modelUsage": {
+    "model": "qwen3-local-unpromoted",
+    "route_reason": "local_CONVERSATION_experimental_v1",
+    "status": "SUCCEEDED",
+    "input_tokens": 136,
+    "output_tokens": 19,
+    "cached_tokens": 0,
+    "estimated_cost_micros": null,
+    "cost_status": "UNKNOWN",
+    "latency_ms": 27251
+  },
+  "conversationPromptHash": "198ddc89e1d93111147a17367e350b9b7d5a37c585b366ad0f3ad3c194453e6b",
+  "localDemoLogin": "PASS",
+  "controlReadiness": "PASS",
+  "workerConnections": [
+    {
+      "workerId": "cli-worker-agent",
+      "presence": "ONLINE",
+      "reportedReadiness": "READY"
+    },
+    {
+      "workerId": "ide-worker-agent",
+      "presence": "ONLINE",
+      "reportedReadiness": "READY"
+    },
+    {
+      "workerId": "siem-worker-agent",
+      "presence": "UNKNOWN",
+      "reportedReadiness": "UNKNOWN"
+    }
+  ],
+  "migrations": [
+    "001_investigation_state.sql",
+    "002_runtime_vertical_slice.sql",
+    "003_investigation_loop.sql",
+    "004_durable_approval.sql",
+    "005_artifact_registry.sql",
+    "006_result_receipts_and_trace.sql",
+    "007_worker_result_deliveries.sql",
+    "008_durable_control.sql",
+    "009_identity_boundary.sql",
+    "010_model_usage_unknown.sql",
+    "011_immutable_bindings.sql",
+    "012_model_ledger_integrity.sql",
+    "013_model_reservations.sql",
+    "014_worker_presence.sql",
+    "015_workload_certificate_revocations.sql",
+    "016_lab_telemetry.sql",
+    "017_hypothesis_plans.sql",
+    "018_local_model_provider.sql",
+    "019_bounded_dispatch.sql"
+  ],
+  "counts": {
+    "tasks": 0,
+    "model_calls": 1,
+    "frontiers": 0,
+    "decisions": 0
+  },
+  "scheduler": {
+    "enabled": true,
+    "active_run_id": null,
+    "max_pending": 32
+  },
+  "finishedAt": "2026-10-14T11:14:30.887Z",
+  "diagnostics": [
+    {
+      "code": "MIGRATION_STARTED",
+      "at": "2026-10-14T11:08:44.941Z"
+    },
+    {
+      "code": "BUILD_STARTED",
+      "at": "2026-10-14T11:08:57.026Z"
+    },
+    {
+      "code": "BUILD_PASS",
+      "at": "2026-10-14T11:12:48.934Z"
+    },
+    {
+      "code": "CONTROL_READY",
+      "at": "2026-10-14T11:13:00.648Z"
+    },
+    {
+      "code": "MODEL_READY",
+      "at": "2026-10-14T11:13:45.999Z"
+    }
+  ]
+}

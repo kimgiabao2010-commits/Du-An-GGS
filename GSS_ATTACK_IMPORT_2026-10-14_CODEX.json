@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "gss.attack-import-receipt.v1",
+  "createdAt": "2026-10-14T10:15:43.456Z",
+  "status": "PASS_NORMALIZED_IMPORT",
+  "version": "20.0",
+  "commit": "20664a889568dce884a1dac0ec7b12ae3a199f51",
+  "techniqueCount": 706,
+  "knowledgeHash": "52f61d43ec48cfc1afa31d34eb38ae91e303ea54cab4810fd1ff1075e47b3d21",
+  "catalogRawSha256": "fd353245f226100db7a70900f1237e0acba9161f9164e2d7113a7cdf62cc02d7",
+  "bundleSha256": "81113ba98afa2928f3dcff62022539f7ce30c315c32e14422f11ff95ce534352",
+  "licenseSha256": "738144f7fb054722a4ef9d3367c51710341dc12fc574c6ac3a41daaaecd8bf5e",
+  "sourceAuthentication": "OPERATOR_PIN_NOT_SIGNATURE",
+  "runtimeActivated": false,
+  "socQuality": "NOT RUN",
+  "paidCalls": 0,
+  "noticePreserved": true
+}

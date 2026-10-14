@@ -6,6 +6,7 @@ import { PostgresLabTelemetryStore, labPolicyFromEnvironment, readCaseTimeline, 
 import { socProfile, type InvestigationRequest } from '@asq/sdk';
 import { OidcAuthority, authorizeOperator, type OperatorIdentity } from './identity.js';
 import {loadOfflineIntel} from './offline-intel.js';
+import {loadAttackKnowledge} from './attack-knowledge.js';
 import {
   RESULT_SCHEMA_VERSION,
   withGssSpan, currentTraceparent, validTraceparent, initializeTracing,
@@ -146,6 +147,7 @@ export class ControlPlaneServer {
   private readonly workloadRevocations:PostgresWorkloadRevocationStore;
   private readonly labTelemetry: PostgresLabTelemetryStore;
   private offlineIntel?:import('@asq/sdk').OfflineIntelCatalog;
+  private attackKnowledge?:import('@asq/sdk').AttackKnowledge;
 
   public constructor(private readonly port = Number(process.env.CONTROL_PLANE_PORT ?? 4100)) {
     initializeTracing();
@@ -187,6 +189,7 @@ export class ControlPlaneServer {
 
   public async ready(): Promise<number> {
     this.offlineIntel=await loadOfflineIntel();
+    this.attackKnowledge=await loadAttackKnowledge();
     await this.runtime.ready();
     await this.queue.start();
     this.watchdog = setInterval(() => {
@@ -440,7 +443,7 @@ export class ControlPlaneServer {
       const reportMatch = url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/report$/);
       if (method === 'GET' && reportMatch) {
         response.setHeader('cache-control', 'no-store');
-        return json(response, 200, await readCaseReport(this.pool, decodeURIComponent(reportMatch[1]),this.offlineIntel));
+        return json(response, 200, await readCaseReport(this.pool, decodeURIComponent(reportMatch[1]),this.offlineIntel,this.attackKnowledge));
       }
       const entitiesMatch=url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/entities$/);
       if(method==='GET' && entitiesMatch){

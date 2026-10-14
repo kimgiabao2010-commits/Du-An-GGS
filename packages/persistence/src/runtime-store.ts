@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
+import {lockDispatchScheduler,assertDispatchCapacity,assertScheduledTask,assertSchedulerActivation,scheduledRun} from './dispatch-scheduler.js';
 import type {
   CaseState, GssResultContract, GssTaskContract, InvestigationRun, ModelUsageRecord, NextStepProposal, ObservationPack, TaskStatus,
 } from '@asq/sdk';
 import { actionFingerprint, sha256Canonical, currentTraceparent, initialTaskDispatchEvent, resultSubmissionHash,
-  SOC_EVIDENCE_POLICY_VERSION, normalizeSocEvidence, planSocEvidence, socQueryWindow, correlateEvidence, buildEvidenceTimeline, buildEvidenceEntities } from '@asq/sdk';
+  SOC_EVIDENCE_POLICY_VERSION, normalizeSocEvidence, planSocEvidence, socQueryWindow, correlateEvidence, buildEvidenceTimeline, buildEvidenceEntities,buildEvidenceAttack } from '@asq/sdk';
 import {
   PostgresInvestigationLoopStore,
   commitObservationAndDecisionWithClient,
@@ -87,7 +88,8 @@ export class PostgresRuntimeStore implements RuntimeStore {
       'case_messages', 'audit_events', 'approval_requests', 'approval_approvals', 'worker_result_deliveries',
       'control_runtime_state', 'command_intakes', 'worker_task_acceptances', 'identity_revocations', 'case_access',
       'model_case_budgets','model_call_reservations','worker_registry','worker_connections',
-      'workload_revocation_state','workload_certificate_revocations','lab_telemetry_batches','lab_import_receipts','lab_query_receipts'];
+      'workload_revocation_state','workload_certificate_revocations','lab_telemetry_batches','lab_import_receipts','lab_query_receipts',
+      'dispatch_scheduler_state'];
     if(this.policyVersion===SOC_EVIDENCE_POLICY_VERSION) required.push('hypothesis_plans');
     const result = await this.pool.query<{ name: string; present: boolean }>(
       'SELECT name,to_regclass(name) IS NOT NULL AS present FROM unnest($1::text[]) AS name', [required]);
@@ -97,6 +99,17 @@ export class PostgresRuntimeStore implements RuntimeStore {
     const usage=await this.pool.query(`SELECT count(*)::int AS n FROM information_schema.columns
       WHERE table_schema=current_schema() AND table_name='model_usage' AND column_name IN ('cost_status','cache_write_tokens')`);
     if(usage.rows[0]?.n!==2) throw new Error('Model usage migrations are incomplete');
+    if(process.env.GSS_BOUNDED_DISPATCH==='true' || ['lab','replay'].includes(process.env.GSS_SOC_PROFILE??'') || process.env.GSS_RUNTIME_ENV==='staging') {
+      await this.transaction(async c=>{
+        const scheduler=await lockDispatchScheduler(c);
+        await assertSchedulerActivation(c,scheduler);
+        const executing=await c.query("SELECT DISTINCT run_id FROM runtime_tasks WHERE status IN ('DISPATCHED','RUNNING')");
+        if(executing.rows.length>1 || executing.rows.some(r=>!r.run_id))throw Object.assign(new Error('scheduler_activation_requires_quiescent_runtime'),{statusCode:503});
+        if(scheduler.enabled)await scheduledRun(c,scheduler);
+        await c.query('UPDATE dispatch_scheduler_state SET enabled=true,active_run_id=COALESCE(active_run_id,$1),updated_at=now() WHERE singleton=true',
+          [executing.rows[0]?.run_id??null]);
+      });
+    }
   }
   public async close(): Promise<void> { await this.pool.end(); }
 
@@ -150,6 +163,7 @@ export class PostgresRuntimeStore implements RuntimeStore {
     return this.transaction(async client => {
     const authority = (await client.query('SELECT halted FROM control_runtime_state WHERE singleton=true FOR SHARE')).rows[0];
     if (!authority || authority.halted) throw Object.assign(new Error('control_halted'), { statusCode: 503 });
+    const scheduler=await lockDispatchScheduler(client);
     await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [task.idempotencyKey]);
     const existing = await client.query<{ action_fingerprint: string | null }>(
       'SELECT action_fingerprint FROM runtime_tasks WHERE idempotency_key=$1', [task.idempotencyKey]);
@@ -159,6 +173,7 @@ export class PostgresRuntimeStore implements RuntimeStore {
       }
       return { created: false };
     }
+    await assertDispatchCapacity(client,scheduler,task.idempotencyKey);
     await client.query("INSERT INTO cases (case_id,state,created_by) VALUES ($1,'NEW',$2) ON CONFLICT (case_id) DO NOTHING", [task.caseId, requestedBy]);
     const budget=(await client.query('SELECT blocked FROM model_case_budgets WHERE case_id=$1 FOR SHARE',[task.caseId])).rows[0];
     if(budget && (budget.blocked || (await client.query("SELECT 1 FROM model_call_reservations WHERE case_id=$1 AND state='STARTED' LIMIT 1",[task.caseId])).rowCount)) {
@@ -169,8 +184,9 @@ export class PostgresRuntimeStore implements RuntimeStore {
       linkage = { ...linkage, runId: run.runId };
     }
     if (linkage.runId) {
-      const run = await client.query('SELECT case_id,cost_micros_used,max_cost_micros,cost_accounting_unknown FROM investigation_runs WHERE run_id=$1 FOR SHARE', [linkage.runId]);
+      const run = await client.query('SELECT case_id,state,deadline_at,cost_micros_used,max_cost_micros,cost_accounting_unknown FROM investigation_runs WHERE run_id=$1 FOR SHARE', [linkage.runId]);
       if (!run.rows[0] || run.rows[0].case_id !== task.caseId) throw Object.assign(new Error('invalid task run provenance'), { statusCode: 422 });
+      if(run.rows[0].state!=='ACTIVE' || new Date(run.rows[0].deadline_at).getTime()<=Date.now())throw Object.assign(new Error('investigation_inactive_or_expired'),{statusCode:403});
       if (Number(run.rows[0].cost_micros_used)>=Number(run.rows[0].max_cost_micros)) throw Object.assign(new Error('cost_budget_exhausted'),{statusCode:403});
       if ((process.env.GSS_RUNTIME_ENV==='staging' || process.env.GSS_ENFORCE_COST_ACCOUNTING==='true') && run.rows[0].cost_accounting_unknown) {
         throw Object.assign(new Error('cost_accounting_unknown'),{statusCode:403});
@@ -235,9 +251,7 @@ export class PostgresRuntimeStore implements RuntimeStore {
           const expired = runId && (!run || run.state !== 'ACTIVE' || Date.parse(run.budget.deadlineAt) <= Date.now());
           if (row.has_result || ['COMPLETED', 'FAILED', 'CANCELLED'].includes(row.status) || expired) {
             // published_at means intent processed, not worker ACK; preserve a retirement reason for audit.
-            await this.pool.query(`UPDATE control_outbox SET published_at=now(),locked_by=NULL,locked_at=NULL,
-              last_error='Dispatch retired: terminal task or inactive/expired run'
-              WHERE event_id=$1 AND locked_by=$2 AND published_at IS NULL`, [event.eventId, claimOwner]);
+            await this.retireDispatchIntent(event,claimOwner,task.idempotencyKey);
             continue; // Retire stale intent; never produce an observation or re-execute a terminal task.
           }
           dispatches.push({ claimOwner, eventId: event.eventId, task, ...(runId ? { runId } : {}) });
@@ -255,7 +269,16 @@ export class PostgresRuntimeStore implements RuntimeStore {
     const dispatches: ClaimedDispatch[] = [];
     for (const claim of claims) {
       const recovered = await this.recoverDispatch(claim);
-      if (recovered) dispatches.push({ claimOwner, ...recovered });
+      if (recovered) {
+        const run=recovered.loop.run,key='decision:'+recovered.loop.decision.decisionId;
+        const task=(await this.pool.query(`SELECT status,EXISTS(SELECT 1 FROM runtime_executions e WHERE e.task_id=t.task_id) AS has_result
+          FROM runtime_tasks t WHERE idempotency_key=$1 AND run_id=$2`,[key,run.runId])).rows[0];
+        if(run.state!=='ACTIVE' || Date.parse(run.budget.deadlineAt)<=Date.now() ||
+          task && (task.has_result || ['COMPLETED','FAILED','CANCELLED'].includes(task.status))) {
+          await this.retireDispatchIntent(claim.event,claimOwner,key);continue;
+        }
+        dispatches.push({ claimOwner, ...recovered });
+      }
       else await this.loopStore.releaseOutbox(claim.event.eventId, claimOwner,
         'Outbox payload did not contain a valid dispatch decision', new Date(Date.now() + 60_000).toISOString());
     }
@@ -277,7 +300,8 @@ export class PostgresRuntimeStore implements RuntimeStore {
       const authority = (await client.query('SELECT halted FROM control_runtime_state WHERE singleton=true FOR SHARE')).rows[0];
       if (!authority || authority.halted) throw Object.assign(new Error('control_halted'), { statusCode: 503 });
     }
-    const current = await client.query('SELECT status FROM runtime_tasks WHERE task_id=$1 FOR UPDATE', [taskId]);
+    const scheduler=await lockDispatchScheduler(client);
+    const current = await client.query('SELECT status,run_id FROM runtime_tasks WHERE task_id=$1 FOR UPDATE', [taskId]);
     if (!current.rows[0]) throw Object.assign(new Error('task_not_found'), { statusCode: 404 });
     const completed = await client.query('SELECT 1 FROM runtime_executions WHERE task_id=$1', [taskId]);
     if (completed.rows[0]) {
@@ -286,6 +310,11 @@ export class PostgresRuntimeStore implements RuntimeStore {
     }
     if (['COMPLETED','FAILED','CANCELLED'].includes(current.rows[0].status) && current.rows[0].status !== status) {
       throw Object.assign(new Error('terminal_task_transition_denied'), { statusCode: 409 });
+    }
+    if(['DISPATCHED','RUNNING'].includes(status)) {
+      const run=(await client.query('SELECT state,deadline_at FROM investigation_runs WHERE run_id=$1 FOR SHARE',[current.rows[0].run_id])).rows[0];
+      if(!run || run.state!=='ACTIVE' || new Date(run.deadline_at).getTime()<=Date.now())throw Object.assign(new Error('investigation_inactive_or_expired'),{statusCode:403});
+      await assertScheduledTask(client,scheduler,current.rows[0].run_id);
     }
     if (current.rows[0].status === 'RUNNING' && status === 'DISPATCHED') return;
     await client.query(`UPDATE runtime_tasks SET status = $2, assigned_worker = COALESCE($3, assigned_worker),
@@ -308,6 +337,7 @@ export class PostgresRuntimeStore implements RuntimeStore {
     runId: string; source: string; artifactHash?: string; proposal: NextStepProposal;
   }, deliveryId?: string): Promise<{ replay: boolean; loop?: CommitObservationResult }> {
     return this.transaction(async client => {
+      await lockDispatchScheduler(client);
       const task = await client.query('SELECT case_id,target,run_id,status,action,parameters FROM runtime_tasks WHERE task_id=$1 FOR UPDATE', [result.taskId]);
       if (!task.rows[0]) throw Object.assign(new Error('task_not_found'), { statusCode: 404 });
       if (task.rows[0].case_id !== result.caseId || task.rows[0].target !== result.executor ||
@@ -337,11 +367,12 @@ export class PostgresRuntimeStore implements RuntimeStore {
       let authorityVerdict:import('@asq/sdk').InvestigationVerdict | undefined;
       let authorityTimeline:import('@asq/sdk').EvidenceTimeline | undefined;
       let authorityEntities:import('@asq/sdk').EvidenceEntities | undefined;
+      let authorityAttack:import('@asq/sdk').EvidenceAttack | undefined;
       const boundRun=task.rows[0].run_id ?
         (await client.query('SELECT policy_version FROM investigation_runs WHERE run_id=$1',[task.rows[0].run_id])).rows[0]:undefined;
       if(boundRun?.policy_version===SOC_EVIDENCE_POLICY_VERSION) {
         if(result.status!=='COMPLETED' && (observation || loop || result.evidenceRefs.length || result.result.evidence ||
-          result.result.timeline!==undefined || result.result.entities!==undefined)) {
+          result.result.timeline!==undefined || result.result.entities!==undefined || result.result.attack!==undefined)) {
           throw Object.assign(new Error('failed_soc_result_cannot_create_evidence'),{statusCode:422});
         }
         if(result.status==='COMPLETED') {
@@ -364,6 +395,7 @@ export class PostgresRuntimeStore implements RuntimeStore {
           authorityVerdict=correlateEvidence(evidence);
           authorityTimeline=buildEvidenceTimeline(evidence,hash);
           authorityEntities=buildEvidenceEntities(evidence,hash);
+          authorityAttack=buildEvidenceAttack(evidence,hash);
           // Caller/model facts never enter the SOC Frontier: authority reconstructs them from the hash-bound evidence.
           const summary=`Read-only provider query returned ${evidence.events.length} events; truncated=${evidence.provenance.truncated}. This is not a SOC verdict.`;
           observation={observationId:'OBS-SOC-'+sha256Canonical({taskId:result.taskId,artifactHash:hash}).slice(0,32),
@@ -380,7 +412,8 @@ export class PostgresRuntimeStore implements RuntimeStore {
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         ON CONFLICT (task_id) DO NOTHING`,
         [result.taskId, result.caseId, result.executor, result.status, JSON.stringify({...result.result,...(authorityVerdict?{verdict:authorityVerdict}:{}),
-          ...(authorityTimeline?{timeline:authorityTimeline}:{}),...(authorityEntities?{entities:authorityEntities}:{})}), result.evidenceRefs,
+          ...(authorityTimeline?{timeline:authorityTimeline}:{}),...(authorityEntities?{entities:authorityEntities}:{}),
+          ...(authorityAttack?{attack:authorityAttack}:{})}), result.evidenceRefs,
           JSON.stringify(result.errors), JSON.stringify(result.metrics), result.completedAt]);
       if (observation) await client.query(`INSERT INTO observation_packs
         (observation_id, case_id, task_id, summary, facts, evidence_refs, raw_artifact_ref, original_bytes, packed_bytes, created_at)
@@ -445,6 +478,26 @@ export class PostgresRuntimeStore implements RuntimeStore {
     try { await client.query('BEGIN'); const value = await operation(client); await client.query('COMMIT'); return value; }
     catch (error) { await client.query('ROLLBACK'); throw error; }
     finally { client.release(); }
+  }
+
+  /** Retire a validated intent without fabricating an execution/result. Never cancel a running worker here. */
+  private async retireDispatchIntent(event:import('@asq/sdk').ControlOutboxEvent,owner:string,key:string):Promise<void> {
+    await this.transaction(async c=>{
+      await lockDispatchScheduler(c);
+      // Task -> outbox lock order matches worker acceptance; avoid reversing that order.
+      const task=(await c.query('SELECT task_id,status FROM runtime_tasks WHERE run_id=$1 AND idempotency_key=$2 FOR UPDATE',
+        [event.aggregateId,key])).rows[0];
+      const published=await c.query(`UPDATE control_outbox SET published_at=now(),locked_by=NULL,locked_at=NULL,
+        last_error='Dispatch retired: terminal task or inactive/expired run'
+        WHERE event_id=$1 AND locked_by=$2 AND event_hash=$3 AND published_at IS NULL`,[event.eventId,owner,event.eventHash]);
+      if(!published.rowCount)return;
+      if(task && ['QUEUED','BLOCKED'].includes(task.status))await c.query(
+        "UPDATE runtime_tasks SET status='CANCELLED',completed_at=now(),updated_at=now() WHERE task_id=$1",[task.task_id]);
+      const payload={eventId:event.eventId,runId:event.aggregateId,reason:'TERMINAL_OR_INACTIVE_OR_EXPIRED',evidenceCreated:false};
+      await c.query(`INSERT INTO audit_events(event_type,severity,actor_id,target_resource,action_payload,event_hash)
+        VALUES('DISPATCH_RETIRED','INFO','control-scheduler',$1,$2,$3) ON CONFLICT (event_hash) WHERE event_hash IS NOT NULL DO NOTHING`,
+        [event.eventId,JSON.stringify(payload),sha256Canonical(payload)]);
+    });
   }
 
   private async recoverDispatch(claim: ClaimedOutboxEvent): Promise<Omit<ClaimedDispatch, 'claimOwner'> | null> {

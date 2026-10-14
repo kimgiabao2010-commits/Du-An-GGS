@@ -1,5 +1,6 @@
 import { PgBoss } from 'pg-boss';
 import type { Pool } from 'pg';
+import {lockDispatchScheduler,scheduledRun} from './dispatch-scheduler.js';
 
 /** Queue is a delivery mechanism, never a second task lifecycle writer. */
 export class PostgresDispatchQueue {
@@ -27,12 +28,14 @@ export class PostgresDispatchQueue {
       await c.query('BEGIN');
       const state = (await c.query('SELECT halted FROM control_runtime_state WHERE singleton=true FOR SHARE')).rows[0];
       if (!state || state.halted) { await c.query('ROLLBACK'); return { eventIds: [], settle: async () => {} }; }
+      const scheduler=await lockDispatchScheduler(c),run=await scheduledRun(c,scheduler);
       const rows = await c.query(`SELECT event_id FROM control_outbox WHERE published_at IS NULL
         AND event_type='TASK_DISPATCH_REQUESTED' AND next_attempt_at<=now()
         AND (locked_at IS NULL OR locked_at<now()-interval '60 seconds')
+        AND (NOT $3::boolean OR aggregate_id=$4)
         AND CASE WHEN $1='initial' THEN payload->>'schemaVersion'='gss.initial-dispatch.v1'
           ELSE COALESCE(payload->>'schemaVersion','')<>'gss.initial-dispatch.v1' END
-        ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT $2`, [kind, limit]);
+        ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT $2`, [kind, limit,scheduler.enabled,run]);
       for (const row of rows.rows) await boss.send(name, { eventId: row.event_id }, {
         singletonKey: row.event_id, db: { executeSql: (sql, values) => c.query(sql, values) },
       });

@@ -11,6 +11,30 @@ async function identity(context: BrowserContext, role: string, expired = false, 
     url: 'http://127.0.0.1:3107', httpOnly: true, sameSite: 'Strict' }]);
 }
 
+test('chat connection fixture fences stale close callbacks after New case and preserves the draft',async({page,context})=>{
+  await identity(context,'SECURITY_ADMIN');
+  await page.addInitScript(()=>{
+    class FixtureSocket {
+      static OPEN=1;static CLOSED=3;readyState=0;
+      onopen:((event:unknown)=>void)|null=null;onclose:((event:unknown)=>void)|null=null;
+      onerror:((event:unknown)=>void)|null=null;onmessage:((event:unknown)=>void)|null=null;
+      constructor(_url:string){setTimeout(()=>{if(this.readyState===0){this.readyState=1;this.onopen?.({});}},30);}
+      send(_value:string){}
+      close(){this.readyState=3;const callback=this.onclose;setTimeout(()=>callback?.({code:1000}),120);}
+    }
+    Object.defineProperty(window,'WebSocket',{value:FixtureSocket,configurable:true});
+  });
+  await page.setViewportSize({width:375,height:812});await page.emulateMedia({reducedMotion:'reduce'});
+  await page.goto('/standalone');await expect(page.locator('#control-channel-status')).toContainText('online');
+  const composer=page.getByRole('textbox',{name:'SOC investigation request'});await composer.fill('Fixture draft, not an investigation');
+  await page.getByRole('button',{name:'New case',exact:true}).click();
+  await expect(page.locator('#control-channel-status')).toContainText('online');
+  await page.waitForTimeout(250); // Delayed stale close is the explicit regression event, not a readiness workaround.
+  await expect(page.locator('#control-channel-status')).toContainText('online');
+  await expect(composer).toHaveValue('Fixture draft, not an investigation');
+  await expect(page.getByRole('button',{name:'Send request',exact:true})).toBeEnabled();
+});
+
 test('investigation desk reads authority only and never fabricates unavailable state',async({page,context})=>{
   await page.goto('/standalone/investigation');await expect(page).toHaveURL(/\/login\?next=/);
   await identity(context,'SOC_ANALYST');await page.goto('/standalone/investigation');

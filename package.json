@@ -24,6 +24,7 @@
     "verify:local": "node scripts/verify-local.mjs",
     "model:eval": "node scripts/evaluate-routing.mjs",
     "soc:eval": "node scripts/evaluate-soc.mjs",
+    "attack:import": "node scripts/import-attack.mjs",
     "db:migrate": "node scripts/migrate-postgres.mjs",
     "db:backup": "node scripts/backup-local-postgres.mjs",
     "lab:artifact-recovery": "node scripts/verify-lab-artifact-recovery.mjs",
@@ -38,7 +39,7 @@
     "test:integration": "node scripts/test-integration-postgres.mjs",
     "test:smoke": "node scripts/runtime.mjs smoke",
     "test:browser": "playwright test",
-    "test:environment": "node --test tests/runtime-env.test.mjs tests/db-backup.test.mjs",
+    "test:environment": "node --test tests/runtime-env.test.mjs tests/db-backup.test.mjs tests/local-model-runtime.test.mjs",
     "typecheck": "tsc --noEmit && tsc --noEmit --project apps/standalone/tsconfig.json"
   },
   "devDependencies": {

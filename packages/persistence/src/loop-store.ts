@@ -19,6 +19,7 @@ import {
   SOC_EVIDENCE_POLICY_VERSION,
 } from '@asq/sdk';
 import { settleModelReservation } from './model-budget-store.js';
+import {lockDispatchScheduler,assertDispatchCapacity,scheduledRun} from './dispatch-scheduler.js';
 
 export interface CreateInvestigationRunInput {
   caseId: string;
@@ -123,6 +124,7 @@ export async function commitObservationAndDecisionWithClient(
   input: CommitObservationInput,
   hypothesisPolicy?: HypothesisDecisionPolicy,
 ): Promise<CommitObservationResult> {
+  const scheduler=await lockDispatchScheduler(client);
   const locked = await client.query<RunRow>('SELECT * FROM investigation_runs WHERE run_id = $1 FOR UPDATE', [input.runId]);
   const row = locked.rows[0];
   if (!row) throw new Error('Investigation run not found');
@@ -179,6 +181,7 @@ export async function commitObservationAndDecisionWithClient(
     now,
   });
   const outbox = createControlOutboxEvent(decision, input.observation.taskId, input.traceparent,hypothesisPlan?.planId);
+  if(decision.kind==='DISPATCH')await assertDispatchCapacity(client,scheduler,'decision:'+decision.decisionId);
   const frontierHash = sha256Canonical(frontier);
   const decisionHash = sha256Canonical(decision);
 
@@ -394,11 +397,17 @@ export class PostgresInvestigationLoopStore {
     kind: 'decision' | 'initial' = 'decision', eventIds?: string[]): Promise<ClaimedOutboxEvent[]> {
     integer(limit, 'limit', 1, 100);
     integer(lockTtlMs, 'lockTtlMs', 1_000, 600_000);
-    const result = await this.pool.query<{ payload: Record<string, unknown>; event_id: string; aggregate_id: string;
+    return this.transaction(async client=>{
+    const authority=(await client.query('SELECT halted FROM control_runtime_state WHERE singleton=true FOR SHARE')).rows[0];
+    if(!authority || authority.halted)return [];
+    const scheduler=await lockDispatchScheduler(client),run=await scheduledRun(client,scheduler);
+    if(scheduler.enabled && !run)return [];
+    const result = await client.query<{ payload: Record<string, unknown>; event_id: string; aggregate_id: string;
       event_type: ControlOutboxEvent['eventType']; event_hash: string; created_at: Date | string; attempts: number }>(`WITH candidates AS (
         SELECT event_id FROM control_outbox
         WHERE published_at IS NULL AND event_type = 'TASK_DISPATCH_REQUESTED' AND next_attempt_at <= now()
           AND ($5::text[] IS NULL OR event_id=ANY($5))
+          AND (NOT $6::boolean OR aggregate_id=$7)
           AND CASE WHEN $4 = 'initial' THEN payload->>'schemaVersion' = 'gss.initial-dispatch.v1'
             ELSE COALESCE(payload->>'schemaVersion', '') <> 'gss.initial-dispatch.v1' END
           AND (locked_at IS NULL OR locked_at < now() - ($3 * interval '1 millisecond'))
@@ -407,7 +416,7 @@ export class PostgresInvestigationLoopStore {
       UPDATE control_outbox o SET locked_by=$1, locked_at=now(), attempts=o.attempts+1
       FROM candidates c WHERE o.event_id=c.event_id
       RETURNING o.event_id,o.aggregate_id,o.event_type,o.payload,o.event_hash,o.created_at,o.attempts`,
-      [workerId, limit, lockTtlMs, kind, eventIds ?? null]);
+      [workerId, limit, lockTtlMs, kind, eventIds ?? null,scheduler.enabled,run]);
     return result.rows.map(row => ({
       attempts: row.attempts,
       event: {
@@ -420,6 +429,7 @@ export class PostgresInvestigationLoopStore {
         createdAt: iso(row.created_at),
       },
     }));
+    });
   }
 
   public async markOutboxPublished(eventId: string, workerId: string): Promise<boolean> {

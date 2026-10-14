@@ -28,6 +28,7 @@ describe('PostgreSQL investigation loop transaction', () => {
     const query = vi.fn(async (sql: unknown) => {
       const text = sqlText(sql);
       queries.push(text);
+      if(text.includes('FROM dispatch_scheduler_state'))return {rows:[{enabled:false,active_run_id:null,max_pending:32}],rowCount:1};
       if (text.startsWith('SELECT * FROM investigation_runs')) return { rows: [runRow], rowCount: 1 };
       if (text.includes('observation_id = $2')) return { rows: [], rowCount: 0 };
       if (text.includes('ORDER BY version DESC LIMIT 1')) return { rows: [], rowCount: 0 };
@@ -46,6 +47,7 @@ describe('PostgreSQL investigation loop transaction', () => {
     expect(result.frontier.version).toBe(1);
     expect(result.decision.kind).toBe('FINALIZE');
     expect(result.run.state).toBe('FINALIZED');
+    expect(queries[0]).toContain('dispatch_scheduler_state');
     const frontierInsert = queries.findIndex(item => item.startsWith('INSERT INTO evidence_frontiers'));
     const decisionInsert = queries.findIndex(item => item.startsWith('INSERT INTO next_step_decisions'));
     const outboxInsert = queries.findIndex(item => item.startsWith('INSERT INTO control_outbox'));
@@ -68,6 +70,7 @@ describe('PostgreSQL investigation loop transaction', () => {
     };
     const query = vi.fn(async (sql: unknown) => {
       const text = sqlText(sql);
+      if(text.includes('FROM dispatch_scheduler_state'))return {rows:[{enabled:false,active_run_id:null,max_pending:32}],rowCount:1};
       if (text.startsWith('SELECT * FROM investigation_runs')) return { rows: [runRow], rowCount: 1 };
       if (text.includes('observation_id = $2')) return { rows: [{ payload: frontier,payload_hash:sha256Canonical(frontier) }], rowCount: 1 };
       if (text.includes('FROM next_step_decisions')) return { rows: [{ payload: decision,payload_hash:sha256Canonical(decision) }], rowCount: 1 };
@@ -79,7 +82,7 @@ describe('PostgreSQL investigation loop transaction', () => {
     });
     expect(result.created).toBe(false);
     expect(result.decision).toEqual(decision);
-    expect(query).toHaveBeenCalledTimes(3);
+    expect(query).toHaveBeenCalledTimes(4);
   });
 
   it('defines all durable M6 tables, idempotency constraints and outbox lease fields', async () => {

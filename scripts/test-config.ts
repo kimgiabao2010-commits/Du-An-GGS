@@ -18,5 +18,5 @@ export default defineConfig({
       return null;
     }
   }],
-  test: { include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'], testTimeout: 10000 }
+  test: { include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'], testTimeout: 10000, maxWorkers:4 }
 });

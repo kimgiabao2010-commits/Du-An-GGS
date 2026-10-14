@@ -46,7 +46,7 @@ describe('SOC rubric evaluator, not a human-labeled corpus or model-quality benc
       expect(rejected.status).not.toBe(0);expect(rejected.stderr).toContain('private content omitted');
       expect(rejected.stderr).not.toContain('SENSITIVE_FIXTURE_TEXT');
     }finally{await rm(root,{recursive:true,force:true});}
-  });
+  },45000); // Four separately bounded 10s child processes; keep every assertion and child timeout.
   it('measures 20/10 criteria but never promotes fixture/declaration-only reviews; preserves unknown usage',()=>{
     const b=bundle(),before=JSON.stringify(b),r=evaluateSocInvestigations(b);
     expect(r).toMatchObject({promotionAllowed:false,socQualityStatus:'NOT_RUN',humanReviewAuthentication:'NOT_VERIFIED_OFFLINE'});
