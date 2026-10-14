@@ -12,6 +12,16 @@ const request = {
 };
 
 describe('ChronicleAdapter', () => {
+  it.each(['dns','security'] as const)('discloses %s field-array truncation even without provider pagination',async field=>{
+    const event={metadata:{id:'fixture-field-loss'},principal:{ip:['8.8.8.8']},...(field==='dns'?
+      {network:{dns:{questions:Array.from({length:21},(_,i)=>({name:`fixture-${i}.example`}))}}}:
+      {security_result:Array.from({length:21},()=>({severity:'LOW',action:'ALLOW'}))})};
+    const fetcher=vi.fn(async()=>new Response(JSON.stringify({events:[event],moreDataAvailable:false})));
+    const evidence=await new ChronicleAdapter(config,fetcher as typeof fetch,async()=>'fixture-token').investigate(request);
+    expect(evidence.events).toHaveLength(1);expect(evidence.provenance).toMatchObject({truncated:true,fieldTruncated:true});
+    const retained=field==='dns'?(evidence.events[0].network as any).dns.questions:evidence.events[0].security_result;
+    expect(retained).toHaveLength(20);
+  });
   it('generates only predefined UDM templates', () => {
     expect(buildChronicleQuery('IP', '8.8.8.8')).toBe('principal.ip = "8.8.8.8" OR target.ip = "8.8.8.8" OR src.ip = "8.8.8.8"');
     expect(() => buildChronicleQuery('IP', '8.8.8.8 OR true')).toThrow(SiemAdapterError);

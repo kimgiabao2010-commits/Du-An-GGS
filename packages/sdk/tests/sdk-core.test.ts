@@ -82,7 +82,7 @@ describe('ASQClient Core SDK', () => {
 
   it('never confirms an empty evidence set', () => {
     const verdict = correlateEvidence({ evidenceId: 'E-1', incidentId: 'C-1', taskId: 'T-1', eventIds: [], events: [],
-      provenance: { adapter: 'google-chronicle', adapterVersion: 'v1', queryHash: 'hash', sourceInstance: 'instance',
+      provenance: { adapter: 'google-chronicle', adapterVersion: 'v1', queryHash: 'a'.repeat(64), sourceInstance: 'instance',
         queriedAt: new Date().toISOString(), timeRange: { start: new Date(0).toISOString(), end: new Date(1).toISOString() },
         resultCount: 0, truncated: false, redaction: 'ALLOWLISTED_FIELDS_ONLY' } });
     expect(verdict.verdict).toBe('INSUFFICIENT_EVIDENCE');

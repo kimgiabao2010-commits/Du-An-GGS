@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 const navigation = [
   { href: '/standalone', label: 'SOC Console', icon: LayoutDashboard },
   { href: '/standalone/tasks', label: 'Cases & Tasks', icon: ListChecks },
+  { href: '/standalone/investigation', label: 'Investigation', icon: Search },
   { href: '/standalone/evidence', label: 'Evidence', icon: FileCheck2 },
   { href: '/standalone/lab', label: 'Lab telemetry', icon: RadioTower },
 ];

@@ -3,12 +3,14 @@ import { Pool, type PoolClient } from 'pg';
 import type {
   CaseState, GssResultContract, GssTaskContract, InvestigationRun, ModelUsageRecord, NextStepProposal, ObservationPack, TaskStatus,
 } from '@asq/sdk';
-import { actionFingerprint, sha256Canonical, currentTraceparent, initialTaskDispatchEvent, resultSubmissionHash } from '@asq/sdk';
+import { actionFingerprint, sha256Canonical, currentTraceparent, initialTaskDispatchEvent, resultSubmissionHash,
+  SOC_EVIDENCE_POLICY_VERSION, normalizeSocEvidence, planSocEvidence, socQueryWindow, correlateEvidence, buildEvidenceTimeline, buildEvidenceEntities } from '@asq/sdk';
 import {
   PostgresInvestigationLoopStore,
   commitObservationAndDecisionWithClient,
   type ClaimedOutboxEvent,
   type CommitObservationResult,
+  type HypothesisDecisionPolicy,
 } from './loop-store.js';
 
 export type MessageRole = 'USER' | 'ASSISTANT' | 'SYSTEM' | 'WORKER';
@@ -56,9 +58,17 @@ export interface RuntimeStore {
 
 export class PostgresRuntimeStore implements RuntimeStore {
   private readonly loopStore: PostgresInvestigationLoopStore;
+  private readonly policyVersion: string;
+  private readonly socAvailableActions: readonly string[];
 
-  public constructor(private readonly pool: Pool) {
+  public constructor(private readonly pool: Pool, policy?: { socEvidence: boolean; siemReadOnlyAuthorized: boolean }) {
     this.loopStore = new PostgresInvestigationLoopStore(pool);
+    const configured=process.env.GSS_INVESTIGATION_POLICY;
+    if(!policy && configured && configured!=='gss.deterministic-planner.v1' && configured!==SOC_EVIDENCE_POLICY_VERSION) {
+      throw new Error('Unsupported investigation policy; no silent fallback');
+    }
+    this.policyVersion=(policy?.socEvidence ?? configured===SOC_EVIDENCE_POLICY_VERSION) ? SOC_EVIDENCE_POLICY_VERSION:'gss.deterministic-planner.v1';
+    this.socAvailableActions=(policy?.siemReadOnlyAuthorized ?? process.env.GSS_SOC_SIEM_READ_ONLY_AUTHORIZED==='true')?['siem:search_siem']:[];
   }
 
   public static fromEnvironment(): PostgresRuntimeStore | null {
@@ -78,6 +88,7 @@ export class PostgresRuntimeStore implements RuntimeStore {
       'control_runtime_state', 'command_intakes', 'worker_task_acceptances', 'identity_revocations', 'case_access',
       'model_case_budgets','model_call_reservations','worker_registry','worker_connections',
       'workload_revocation_state','workload_certificate_revocations','lab_telemetry_batches','lab_import_receipts','lab_query_receipts'];
+    if(this.policyVersion===SOC_EVIDENCE_POLICY_VERSION) required.push('hypothesis_plans');
     const result = await this.pool.query<{ name: string; present: boolean }>(
       'SELECT name,to_regclass(name) IS NOT NULL AS present FROM unnest($1::text[]) AS name', [required]);
     if (result.rows.length !== required.length || result.rows.some(row => !row.present)) {
@@ -95,7 +106,7 @@ export class PostgresRuntimeStore implements RuntimeStore {
   }
 
   public async ensureInvestigationRun(caseId: string, requestedBy: string, traceparent?: string): Promise<InvestigationRun> {
-    const run = await this.loopStore.ensureRun({ caseId, requestedBy });
+    const run = await this.loopStore.ensureRun({ caseId, requestedBy,policyVersion:this.policyVersion });
     if (!traceparent) return run;
     await this.pool.query('UPDATE investigation_runs SET traceparent=COALESCE(traceparent,$2) WHERE run_id=$1', [run.runId, traceparent]);
     return (await this.loopStore.getRun(run.runId))!;
@@ -108,6 +119,8 @@ export class PostgresRuntimeStore implements RuntimeStore {
   public async getEvidenceFrontier(runId: string, version?: number) {
     return this.loopStore.getFrontier(runId, version);
   }
+
+  public async getHypothesisPlan(runId:string,version:number) { return this.loopStore.getHypothesisPlan(runId,version); }
 
   public async recordModelUsage(record: ModelUsageRecord): Promise<{ created: boolean }> {
     return this.loopStore.recordModelUsage(record);
@@ -152,7 +165,7 @@ export class PostgresRuntimeStore implements RuntimeStore {
       throw Object.assign(new Error('model_budget_uncertain'),{statusCode:403});
     }
     if (!linkage.runId && !linkage.parentTaskId) {
-      const run = await this.loopStore.ensureRun({ caseId: task.caseId, requestedBy }, client);
+      const run = await this.loopStore.ensureRun({ caseId: task.caseId, requestedBy,policyVersion:this.policyVersion }, client);
       linkage = { ...linkage, runId: run.runId };
     }
     if (linkage.runId) {
@@ -295,7 +308,7 @@ export class PostgresRuntimeStore implements RuntimeStore {
     runId: string; source: string; artifactHash?: string; proposal: NextStepProposal;
   }, deliveryId?: string): Promise<{ replay: boolean; loop?: CommitObservationResult }> {
     return this.transaction(async client => {
-      const task = await client.query('SELECT case_id,target,run_id,status FROM runtime_tasks WHERE task_id=$1 FOR UPDATE', [result.taskId]);
+      const task = await client.query('SELECT case_id,target,run_id,status,action,parameters FROM runtime_tasks WHERE task_id=$1 FOR UPDATE', [result.taskId]);
       if (!task.rows[0]) throw Object.assign(new Error('task_not_found'), { statusCode: 404 });
       if (task.rows[0].case_id !== result.caseId || task.rows[0].target !== result.executor ||
           (loop && task.rows[0].run_id !== loop.runId)) {
@@ -320,11 +333,54 @@ export class PostgresRuntimeStore implements RuntimeStore {
       if (['CANCELLED', 'FAILED', 'COMPLETED'].includes(task.rows[0].status)) {
         throw Object.assign(new Error('terminal_task_result_denied'), { statusCode: 409 });
       }
+      let hypothesisPolicy:HypothesisDecisionPolicy | undefined;
+      let authorityVerdict:import('@asq/sdk').InvestigationVerdict | undefined;
+      let authorityTimeline:import('@asq/sdk').EvidenceTimeline | undefined;
+      let authorityEntities:import('@asq/sdk').EvidenceEntities | undefined;
+      const boundRun=task.rows[0].run_id ?
+        (await client.query('SELECT policy_version FROM investigation_runs WHERE run_id=$1',[task.rows[0].run_id])).rows[0]:undefined;
+      if(boundRun?.policy_version===SOC_EVIDENCE_POLICY_VERSION) {
+        if(result.status!=='COMPLETED' && (observation || loop || result.evidenceRefs.length || result.result.evidence ||
+          result.result.timeline!==undefined || result.result.entities!==undefined)) {
+          throw Object.assign(new Error('failed_soc_result_cannot_create_evidence'),{statusCode:422});
+        }
+        if(result.status==='COMPLETED') {
+          if(!loop || !observation || loop.source!=='siem' || result.executor!=='siem' || task.rows[0].action!=='search_siem') {
+            throw Object.assign(new Error('soc_policy_requires_verified_siem_observation'),{statusCode:422});
+          }
+          const evidence=result.result.evidence as import('@asq/sdk').InvestigationEvidence;
+          if(!evidence || evidence.taskId!==result.taskId || evidence.incidentId!==result.caseId || !result.evidenceRefs.includes(evidence.evidenceId)) {
+            throw Object.assign(new Error('soc_evidence_identity_mismatch'),{statusCode:422});
+          }
+          const evidenceBytes=JSON.stringify(evidence), hash=createHash('sha256').update(evidenceBytes).digest('hex');
+          const registered=(await client.query('SELECT storage_ref,bytes FROM artifact_registry WHERE case_id=$1 AND task_id=$2 AND sha256=$3',
+            [result.caseId,result.taskId,hash])).rows[0];
+          if(loop.artifactHash!==hash || result.result.sha256!==hash || !registered ||
+            registered.storage_ref!==result.result.rawArtifactRef || Number(registered.bytes)!==Buffer.byteLength(evidenceBytes)) {
+            throw Object.assign(new Error('soc_evidence_artifact_hash_mismatch'),{statusCode:422});
+          }
+          const now=new Date().toISOString(),parameters=task.rows[0].parameters as Record<string,unknown>;
+          const normalized=normalizeSocEvidence(evidence,parameters,now),window=socQueryWindow(parameters,now);
+          authorityVerdict=correlateEvidence(evidence);
+          authorityTimeline=buildEvidenceTimeline(evidence,hash);
+          authorityEntities=buildEvidenceEntities(evidence,hash);
+          // Caller/model facts never enter the SOC Frontier: authority reconstructs them from the hash-bound evidence.
+          const summary=`Read-only provider query returned ${evidence.events.length} events; truncated=${evidence.provenance.truncated}. This is not a SOC verdict.`;
+          observation={observationId:'OBS-SOC-'+sha256Canonical({taskId:result.taskId,artifactHash:hash}).slice(0,32),
+            caseId:result.caseId,taskId:result.taskId,summary,facts:normalized,evidenceRefs:[evidence.evidenceId,`EVD-${hash.slice(0,16)}`],
+            rawArtifactRef:registered.storage_ref,createdAt:evidence.provenance.queriedAt,
+            originalBytes:Buffer.byteLength(evidenceBytes),packedBytes:Buffer.byteLength(summary)};
+          const entityContext={projection:authorityEntities,queriedIndicator:{type:parameters.indicatorType as import('@asq/sdk').IndicatorType,
+            value:String(parameters.indicatorValue)}};
+          hypothesisPolicy=context=>planSocEvidence({...context,window,availableActions:this.socAvailableActions,entityContext});
+        }
+      }
       await client.query(`INSERT INTO runtime_executions
         (task_id, case_id, executor, status, result, evidence_refs, errors, metrics, completed_at)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         ON CONFLICT (task_id) DO NOTHING`,
-        [result.taskId, result.caseId, result.executor, result.status, JSON.stringify(result.result), result.evidenceRefs,
+        [result.taskId, result.caseId, result.executor, result.status, JSON.stringify({...result.result,...(authorityVerdict?{verdict:authorityVerdict}:{}),
+          ...(authorityTimeline?{timeline:authorityTimeline}:{}),...(authorityEntities?{entities:authorityEntities}:{})}), result.evidenceRefs,
           JSON.stringify(result.errors), JSON.stringify(result.metrics), result.completedAt]);
       if (observation) await client.query(`INSERT INTO observation_packs
         (observation_id, case_id, task_id, summary, facts, evidence_refs, raw_artifact_ref, original_bytes, packed_bytes, created_at)
@@ -345,7 +401,7 @@ export class PostgresRuntimeStore implements RuntimeStore {
           VALUES ($1,$2,$3,$4,$5) ON CONFLICT (evidence_id) DO NOTHING`,
           [evidence.evidenceId, result.caseId, result.taskId, evidence.eventIds ?? [], JSON.stringify(evidence.events ?? [])]);
       }
-      const verdict = result.result.verdict as Record<string, any> | undefined;
+      const verdict = authorityVerdict ?? result.result.verdict as Record<string, any> | undefined;
       if (result.executor === 'siem' && verdict) await client.query(`INSERT INTO runtime_investigation_verdicts
         (task_id,case_id,verdict,evidence_ids,policy_version,rationale,created_at)
         VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (task_id) DO NOTHING`,
@@ -367,7 +423,7 @@ export class PostgresRuntimeStore implements RuntimeStore {
           source: loop.source,
           ...(loop.artifactHash ? { artifactHash: loop.artifactHash } : {}),
           proposal: loop.proposal,
-        });
+        },hypothesisPolicy);
       }
       await client.query('INSERT INTO runtime_result_receipts (task_id,envelope_hash,loop_result) VALUES ($1,$2,$3)',
         [result.taskId, envelopeHash, committedLoop ? JSON.stringify(committedLoop) : null]);
@@ -409,9 +465,12 @@ export class PostgresRuntimeStore implements RuntimeStore {
     ]);
     if (!run || !frontier || run.caseId !== decision.caseId || run.policyVersion !== decision.policyVersion ||
       frontier.runId !== run.runId || frontier.version !== decision.frontierVersion || frontier.caseId !== decision.caseId) return null;
+    const hypothesisPlan=run.policyVersion===SOC_EVIDENCE_POLICY_VERSION ? await this.loopStore.getHypothesisPlan(run.runId,frontier.version):undefined;
+    if(run.policyVersion===SOC_EVIDENCE_POLICY_VERSION && (!hypothesisPlan || payload.hypothesisPlanId!==hypothesisPlan.planId ||
+      sha256Canonical(hypothesisPlan.decision)!==sha256Canonical(decision))) return null;
     return {
       ...(typeof payload.parentTaskId === 'string' && payload.parentTaskId ? { parentTaskId: payload.parentTaskId } : {}),
-      loop: { created: false, run, frontier, decision, outbox: claim.event },
+      loop: { created: false, run, frontier, decision, outbox: claim.event,...(hypothesisPlan?{hypothesisPlan}: {}) },
     };
   }
 }

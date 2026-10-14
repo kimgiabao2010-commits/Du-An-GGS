@@ -4,7 +4,7 @@ export interface ModelReservationInput {
   schemaVersion: 'gss.model-reservation.v1';
   usageId: string;
   caseId: string;
-  provider: 'openai' | 'groq';
+  provider: 'openai' | 'groq' | 'llama.cpp';
   model: string;
   requestHash: string;
   requestBytes: number;

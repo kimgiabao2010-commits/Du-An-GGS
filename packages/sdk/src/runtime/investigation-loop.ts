@@ -374,8 +374,9 @@ export function planNextStep(input: PlanNextStepInput): NextStepDecision {
   };
 }
 
-export function createControlOutboxEvent(decision: NextStepDecision, parentTaskId?: string, traceparent?: string): ControlOutboxEvent {
-  const payload = { decision, ...(parentTaskId ? { parentTaskId } : {}), ...(traceparent ? { traceparent } : {}) };
+export function createControlOutboxEvent(decision: NextStepDecision, parentTaskId?: string, traceparent?: string, hypothesisPlanId?:string): ControlOutboxEvent {
+  const payload = { decision, ...(parentTaskId ? { parentTaskId } : {}), ...(traceparent ? { traceparent } : {}),
+    ...(hypothesisPlanId?{hypothesisPlanId}: {}) };
   const eventType = decision.kind === 'DISPATCH' ? 'TASK_DISPATCH_REQUESTED' : 'NEXT_STEP_DECIDED';
   const identity = { aggregateId: decision.runId, eventType, payload };
   const eventHash = sha256Canonical(identity);

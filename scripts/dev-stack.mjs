@@ -87,7 +87,9 @@ if (dryRun) {
   console.log('\nGSS local stack check');
   console.log('SOC profile: '+socProfile+'; '+(socProfile==='staging'?'Chronicle live gate required.':'external LLM disabled; lab evidence is not Chronicle.'));
   console.log('URL: http://localhost:3000');
-  console.log(socProfile!=='staging'?'BLOCKED: external LLM disabled by lab/replay policy; local model not evaluated.':
+  console.log(socProfile!=='staging'?(process.env.GSS_LOCAL_CONVERSATION_ENABLED==='true'?
+    'CONFIGURED: experimental local conversation; endpoint/model health and SOC quality remain unverified.':
+    'BLOCKED: local conversation disabled; configure a reviewed llama.cpp model to enable it.'):
     process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY ? 'OK: LLM provider configured.' : 'WARNING: no LLM provider; deterministic read-only intents still work.');
   console.log('OK: will start ' + services.map(([name]) => name).join(', '));
   console.log(`OK: IDE read-only root configured (${runtimeEnv.GSS_IDE_REPOSITORY_ROOTS === root ? 'repository root' : 'custom allowlist'}).`);

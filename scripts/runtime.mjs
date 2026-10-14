@@ -8,7 +8,8 @@ const targets = {
   ide: 'services/ide-reasoning/src/main.ts',
   siem: 'services/siem-worker/src/main.ts',
   smoke: 'tests/e2e/test_closed_loop.ts',
-  lab: 'services/standalone/src/lab-cli.ts'
+  lab: 'services/standalone/src/lab-cli.ts',
+  'lab-check': 'services/standalone/src/lab-runtime-check.ts'
 };
 const target = targets[process.argv[2]];
 if (!target) throw new Error('Unknown runtime target');

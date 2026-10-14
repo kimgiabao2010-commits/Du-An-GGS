@@ -1,0 +1,200 @@
+{
+  "schemaVersion": "gss.verification-report.v1",
+  "createdAt": "2026-10-14T05:17:02.507Z",
+  "revision": "305b1dbf0ae0ad05e6853c8c94849b0f290f6e33",
+  "sourceFingerprint": "da81280c9f4ef57a7cab8c5a108f8b7d16d4d1e3977a59a4da0d5ebbd86ee69f",
+  "sourceUnchangedDuringVerification": true,
+  "packageLockSha256": "303034104dba626be32b080635bc0ab12be8b920cfc6ad30088be6df87e8c067",
+  "localStatus": "PASS",
+  "releaseStatus": "BLOCKED",
+  "checks": [
+    {
+      "gate": "source",
+      "status": "PASS",
+      "environment": "local",
+      "command": "npm.cmd run source:check",
+      "exitCode": 0,
+      "startedAt": "2026-10-14T05:14:22.737Z",
+      "finishedAt": "2026-10-14T05:14:23.554Z",
+      "log": "source.log",
+      "sha256": "ecc03b17cce446fc29eb18071c382032e792f14f0042a202ea35dbe5233f01ba"
+    },
+    {
+      "gate": "skills",
+      "status": "PASS",
+      "environment": "local",
+      "command": "npm.cmd run skills:audit",
+      "exitCode": 0,
+      "startedAt": "2026-10-14T05:14:23.554Z",
+      "finishedAt": "2026-10-14T05:14:24.314Z",
+      "log": "skills.log",
+      "sha256": "01326fd823e4131f862806fc13ce489c808253609766ad65543a5c05cfe4e34e"
+    },
+    {
+      "gate": "build",
+      "status": "PASS",
+      "environment": "local",
+      "command": "npm.cmd run build -- --force",
+      "exitCode": 0,
+      "startedAt": "2026-10-14T05:14:24.314Z",
+      "finishedAt": "2026-10-14T05:15:20.185Z",
+      "log": "build.log",
+      "sha256": "4f32e35d84a26bbdcd541c0c8e09e3d99baa077b78313843ae57ff0fda564fa7"
+    },
+    {
+      "gate": "types",
+      "status": "PASS",
+      "environment": "local",
+      "command": "npm.cmd run typecheck",
+      "exitCode": 0,
+      "startedAt": "2026-10-14T05:15:20.185Z",
+      "finishedAt": "2026-10-14T05:15:43.197Z",
+      "log": "types.log",
+      "sha256": "748632874acaafadd4e6344a8e4dd8c22d717efaaaf911bf7adb709058ae2857"
+    },
+    {
+      "gate": "unit",
+      "status": "PASS",
+      "environment": "local",
+      "command": "npm.cmd run test:unit",
+      "exitCode": 0,
+      "startedAt": "2026-10-14T05:15:43.197Z",
+      "finishedAt": "2026-10-14T05:15:52.804Z",
+      "log": "unit.log",
+      "sha256": "8656b07e657a1c476ebd19ced3ac7bdb87ed794a2c845c40d62e07c0301c0cf8"
+    },
+    {
+      "gate": "integration",
+      "status": "PASS",
+      "environment": "local",
+      "command": "npm.cmd run test:integration",
+      "exitCode": 0,
+      "startedAt": "2026-10-14T05:15:52.805Z",
+      "finishedAt": "2026-10-14T05:16:23.878Z",
+      "log": "integration.log",
+      "sha256": "5702d4372e8acf08b64a1c699c69cad5410527eb7cf131d584d22baadeb0c9c1"
+    },
+    {
+      "gate": "environment",
+      "status": "PASS",
+      "environment": "local",
+      "command": "npm.cmd run test:environment",
+      "exitCode": 0,
+      "startedAt": "2026-10-14T05:16:23.878Z",
+      "finishedAt": "2026-10-14T05:16:25.019Z",
+      "log": "environment.log",
+      "sha256": "3e5d74d54cc1dfb135c716c97ab912448ff40a5f9f00264f8b436b1b9d7a2a0c"
+    },
+    {
+      "gate": "smoke",
+      "status": "PASS",
+      "environment": "local",
+      "command": "npm.cmd run test:smoke",
+      "exitCode": 0,
+      "startedAt": "2026-10-14T05:16:25.019Z",
+      "finishedAt": "2026-10-14T05:16:26.857Z",
+      "log": "smoke.log",
+      "sha256": "7907a31669ef2cd7ae5d94b5908cd93ba43ae18ee47c70d53f758be21321b7a0"
+    },
+    {
+      "gate": "browser",
+      "status": "PASS",
+      "environment": "local",
+      "command": "npm.cmd run test:browser",
+      "exitCode": 0,
+      "startedAt": "2026-10-14T05:16:26.857Z",
+      "finishedAt": "2026-10-14T05:16:57.273Z",
+      "log": "browser.log",
+      "sha256": "81c1167b8ff694b9ebe6df8a3e801f33639fb709701bf2770a93ba7be7866582"
+    },
+    {
+      "gate": "dependency-audit",
+      "status": "PASS",
+      "environment": "local",
+      "command": "npm.cmd audit --omit=dev --audit-level=high",
+      "exitCode": 0,
+      "startedAt": "2026-10-14T05:16:57.273Z",
+      "finishedAt": "2026-10-14T05:16:59.955Z",
+      "log": "dependency-audit.log",
+      "sha256": "6d8c5c8f3d7684adb070417bd608d01ae90aa3dc26a65af03ffda4955f38d9a3"
+    },
+    {
+      "gate": "dependency-audit-all",
+      "status": "PASS",
+      "environment": "local",
+      "command": "npm.cmd audit --audit-level=high",
+      "exitCode": 0,
+      "startedAt": "2026-10-14T05:16:59.955Z",
+      "finishedAt": "2026-10-14T05:17:02.507Z",
+      "log": "dependency-audit-all.log",
+      "sha256": "6d8c5c8f3d7684adb070417bd608d01ae90aa3dc26a65af03ffda4955f38d9a3"
+    }
+  ],
+  "externalGates": [
+    {
+      "gate": "chronicle-live",
+      "status": "NOT RUN",
+      "reason": "Local verification is not staging evidence; see advancement report."
+    },
+    {
+      "gate": "rootless-sandbox-adversarial",
+      "status": "NOT RUN",
+      "reason": "Local verification is not staging evidence; see advancement report."
+    },
+    {
+      "gate": "oidc-browser-staging",
+      "status": "NOT RUN",
+      "reason": "Local verification is not staging evidence; see advancement report."
+    },
+    {
+      "gate": "workload-identity-staging",
+      "status": "NOT RUN",
+      "reason": "Local verification is not staging evidence; see advancement report."
+    },
+    {
+      "gate": "object-lock-live",
+      "status": "NOT RUN",
+      "reason": "Local verification is not staging evidence; see advancement report."
+    },
+    {
+      "gate": "otlp-staging-trace",
+      "status": "NOT RUN",
+      "reason": "Local verification is not staging evidence; see advancement report."
+    },
+    {
+      "gate": "model-labeled-eval",
+      "status": "NOT RUN",
+      "reason": "Local verification is not staging evidence; see advancement report."
+    },
+    {
+      "gate": "osv-trivy-remote",
+      "status": "NOT RUN",
+      "reason": "Local verification is not staging evidence; see advancement report."
+    },
+    {
+      "gate": "load-SLO-staging",
+      "status": "NOT RUN",
+      "reason": "Local verification is not staging evidence; see advancement report."
+    },
+    {
+      "gate": "72-hour-freeze",
+      "status": "NOT RUN",
+      "reason": "Local verification is not staging evidence; see advancement report."
+    }
+  ],
+  "rawManifest": "data/verification/2026-10-14T05-14-22-734Z-67fdea5d-59a9-4dbf-a724-fb67310315aa/manifest.json",
+  "testCounts": {
+    "unitPassed": 160,
+    "integrationPassed": 194,
+    "integrationSkipped": 1,
+    "environmentPassed": 11,
+    "browserPassed": 17,
+    "totalPassed": 382,
+    "skipReason": "Operator-authorized live batch not configured; actual own-device metadata browser verified separately."
+  },
+  "runtimeReceipts": {
+    "browser": "data/verification/lab-runtime-browser-1791955013922/receipt.json"
+  },
+  "logHashesVerified": true,
+  "publication": "NOT PUBLISHED; checkpoint authorized at >=85% usage. Revision is base commit of uncommitted source."
+}

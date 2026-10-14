@@ -2,9 +2,10 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { createServer as createSecureServer } from 'node:https';
 import { createHash, createPrivateKey, randomUUID, timingSafeEqual, type KeyObject } from 'node:crypto';
 import { Pool } from 'pg';
-import { PostgresLabTelemetryStore, labPolicyFromEnvironment } from '@asq/persistence';
+import { PostgresLabTelemetryStore, labPolicyFromEnvironment, readCaseTimeline, readCaseReport, readCaseInvestigation, readCaseEntities } from '@asq/persistence';
 import { socProfile, type InvestigationRequest } from '@asq/sdk';
 import { OidcAuthority, authorizeOperator, type OperatorIdentity } from './identity.js';
+import {loadOfflineIntel} from './offline-intel.js';
 import {
   RESULT_SCHEMA_VERSION,
   withGssSpan, currentTraceparent, validTraceparent, initializeTracing,
@@ -144,6 +145,7 @@ export class ControlPlaneServer {
   private readonly peerPolicy:WorkloadPeerPolicy;
   private readonly workloadRevocations:PostgresWorkloadRevocationStore;
   private readonly labTelemetry: PostgresLabTelemetryStore;
+  private offlineIntel?:import('@asq/sdk').OfflineIntelCatalog;
 
   public constructor(private readonly port = Number(process.env.CONTROL_PLANE_PORT ?? 4100)) {
     initializeTracing();
@@ -184,6 +186,7 @@ export class ControlPlaneServer {
   }
 
   public async ready(): Promise<number> {
+    this.offlineIntel=await loadOfflineIntel();
     await this.runtime.ready();
     await this.queue.start();
     this.watchdog = setInterval(() => {
@@ -429,6 +432,21 @@ export class ControlPlaneServer {
       if (method === 'POST' && url.pathname === '/control/v1/model-usage') return await this.recordModelUsage(request, response);
       const frontierMatch = url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/frontier$/);
       if (method === 'GET' && frontierMatch) return await this.getFrontier(decodeURIComponent(frontierMatch[1]), response);
+      const timelineMatch = url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/timeline$/);
+      if (method === 'GET' && timelineMatch) {
+        response.setHeader('cache-control', 'no-store');
+        return json(response, 200, { ...await readCaseTimeline(this.pool, decodeURIComponent(timelineMatch[1])) });
+      }
+      const reportMatch = url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/report$/);
+      if (method === 'GET' && reportMatch) {
+        response.setHeader('cache-control', 'no-store');
+        return json(response, 200, await readCaseReport(this.pool, decodeURIComponent(reportMatch[1]),this.offlineIntel));
+      }
+      const entitiesMatch=url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/entities$/);
+      if(method==='GET' && entitiesMatch){
+        response.setHeader('cache-control','no-store');
+        return json(response,200,{...await readCaseEntities(this.pool,decodeURIComponent(entitiesMatch[1]))});
+      }
       const labReportMatch = url.pathname.match(/^\/control\/v1\/cases\/([^/]+)\/lab-report$/);
       if (method === 'GET' && labReportMatch) return json(response,200,await this.labTelemetry.report(decodeURIComponent(labReportMatch[1])));
       if (method === 'POST' && url.pathname === '/control/v1/approvals') return await this.createApproval(request, response);
@@ -668,11 +686,10 @@ export class ControlPlaneServer {
   }
 
   private async getFrontier(caseId: string, response: ServerResponse): Promise<void> {
-    const result = await this.pool.query<{ run_id: string }>('SELECT run_id FROM investigation_runs WHERE case_id=$1 ORDER BY updated_at DESC LIMIT 1', [caseId]);
-    const runId = result.rows[0]?.run_id;
-    if (!runId) return json(response, 404, { error: 'frontier_not_found' });
-    const [run, frontier] = await Promise.all([this.runtime.getInvestigationRun(runId), this.runtime.getEvidenceFrontier(runId)]);
-    return json(response, 200, { run, frontier });
+    response.setHeader('cache-control','no-store');
+    const snapshot=await readCaseInvestigation(this.pool,caseId);
+    if(!snapshot)return json(response,404,{error:'frontier_not_found'});
+    return json(response,200,snapshot);
   }
 
   private async createApproval(request: IncomingMessage, response: ServerResponse): Promise<void> {

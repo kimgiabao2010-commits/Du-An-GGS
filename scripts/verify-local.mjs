@@ -18,7 +18,7 @@ async function sourceFingerprint() {
       if(excluded.has(entry.name) || entry.isSymbolicLink()) continue;
       const path=folder+'/'+entry.name;
       if(entry.isDirectory()) await visit(path);
-      else if(/\.(?:ts|tsx|mjs|json|sql|ya?ml|css|proto|md)$/.test(entry.name)) files.push(path);
+      else if(/\.(?:[cm]?ts|tsx|[cm]?js|json|sql|ya?ml|css|proto|md)$/.test(entry.name)) files.push(path);
     }
   }
   for(const folder of ['apps','packages','services','scripts','tests','infra','agent-skills','.github','.vscode']) await visit(folder);

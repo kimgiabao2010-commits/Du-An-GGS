@@ -3,7 +3,7 @@ import type { Pool, PoolClient } from 'pg';
 import { sha256Canonical, modelUsagePayloadHash, type ModelReservationInput,
   type ModelReservationReceipt, type ModelUsageRecord } from '@asq/sdk';
 
-interface ModelPolicy { provider: 'openai' | 'groq'; model: string; reservationMicros: number; maxRequestBytes: number; maxOutputTokens: number }
+interface ModelPolicy { provider: 'openai' | 'groq' | 'llama.cpp'; model: string; reservationMicros: number; maxRequestBytes: number; maxOutputTokens: number }
 export interface ModelBudgetPolicy { version: string; caseBudgetMicros: number; models: ModelPolicy[] }
 const deny = (reason: string, statusCode=403) => Object.assign(new Error(reason),{statusCode});
 const positive = (v: unknown, max=Number.MAX_SAFE_INTEGER): v is number =>
@@ -19,7 +19,7 @@ export function modelBudgetPolicyFromEnvironment(): ModelBudgetPolicy | undefine
   try { policy=JSON.parse(raw); } catch { throw deny('model_budget_policy_invalid',503); }
   if(!policy || typeof policy.version!=='string' || !policy.version.trim() || policy.version.length>128 ||
     !positive(policy.caseBudgetMicros) || !Array.isArray(policy.models) || policy.models.length<1 || policy.models.length>20 ||
-    policy.models.some(p=>!p || !['openai','groq'].includes(p.provider) || typeof p.model!=='string' || !p.model || p.model.length>128 ||
+    policy.models.some(p=>!p || !['openai','groq','llama.cpp'].includes(p.provider) || typeof p.model!=='string' || !p.model || p.model.length>128 ||
       !positive(p.reservationMicros,policy.caseBudgetMicros) || !positive(p.maxRequestBytes,1000000) || !positive(p.maxOutputTokens,100000)) ||
     new Set(policy.models.map(p=>p.provider+':'+p.model)).size!==policy.models.length) throw deny('model_budget_policy_invalid',503);
   return policy;
@@ -32,7 +32,7 @@ export class PostgresModelBudgetStore {
   async reserve(input: ModelReservationInput): Promise<ModelReservationReceipt> {
     if(input.schemaVersion!=='gss.model-reservation.v1' || ![input.caseId,input.usageId,input.model].every(v=>typeof v==='string' && v.length>0 && v.length<=256) ||
       !/^[a-f0-9]{64}$/.test(input.requestHash) || !positive(input.requestBytes,1000000) || !positive(input.maxOutputTokens,100000) ||
-      !['openai','groq'].includes(input.provider)) throw deny('model_reservation_contract_invalid',422);
+      !['openai','groq','llama.cpp'].includes(input.provider)) throw deny('model_reservation_contract_invalid',422);
     if(!this.policy) {
       if((await this.pool.query('SELECT 1 FROM model_case_budgets WHERE case_id=$1',[input.caseId])).rowCount) throw deny('model_budget_policy_required',503);
       return {enabled:false};

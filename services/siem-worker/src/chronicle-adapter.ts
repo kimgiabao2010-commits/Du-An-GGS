@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { GoogleAuth } from 'google-auth-library';
+import {readOnlyUdmQuery} from '@asq/sdk';
 import type {
   IndicatorType, InvestigationEvidence, InvestigationRequest, SiemAdapter, SiemFailureCode,
 } from '@asq/sdk';
@@ -55,37 +56,9 @@ function validateIdentifier(value: string, label: string): string {
   return value;
 }
 
-function quote(value: string): string {
-  return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
-}
-
-function validateIndicator(type: IndicatorType, value: string): string {
-  const trimmed = value.trim();
-  const validators: Record<IndicatorType, RegExp> = {
-    IP: /^(?:[a-fA-F0-9:]{2,39}|(?:\d{1,3}\.){3}\d{1,3})$/,
-    DOMAIN: /^(?=.{1,253}$)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$/,
-    HASH: /^(?:[a-fA-F0-9]{32}|[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$/,
-    USER: /^[a-zA-Z0-9._@\\-]{1,256}$/,
-    HOSTNAME: /^[a-zA-Z0-9._-]{1,253}$/,
-  };
-  if (!validators[type]?.test(trimmed)) throw new SiemAdapterError('INVALID_QUERY', `Invalid ${type} indicator`);
-  if (type === 'IP' && trimmed.includes('.')) {
-    const octets = trimmed.split('.').map(Number);
-    if (octets.some(part => part > 255)) throw new SiemAdapterError('INVALID_QUERY', 'Invalid IP indicator');
-  }
-  return trimmed;
-}
-
 export function buildChronicleQuery(type: IndicatorType, rawValue: string): string {
-  const value = quote(validateIndicator(type, rawValue));
-  const templates: Record<IndicatorType, string[]> = {
-    IP: ['principal.ip', 'target.ip', 'src.ip'],
-    DOMAIN: ['principal.hostname', 'target.hostname', 'network.dns.questions.name'],
-    HASH: ['target.file.md5', 'target.file.sha1', 'target.file.sha256'],
-    USER: ['principal.user.userid', 'target.user.userid'],
-    HOSTNAME: ['principal.hostname', 'target.hostname'],
-  };
-  return templates[type].map(field => `${field} = ${value}`).join(' OR ');
+  try { return readOnlyUdmQuery(type,rawValue.trim()); }
+  catch { throw new SiemAdapterError('INVALID_QUERY',`Invalid ${type} indicator`); }
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -117,6 +90,12 @@ function allowlistEvent(event: unknown): Record<string, unknown> {
     security_result: Array.isArray(source.security_result)
       ? source.security_result.slice(0, 20).map(item => pick(record(item), ['action', 'severity', 'threat_name'])) : [],
   };
+}
+
+function eventFieldTruncated(event: unknown): boolean {
+  const source=record(event),questions=record(record(source.network).dns).questions;
+  return Array.isArray(questions) && questions.length>20 ||
+    Array.isArray(source.security_result) && source.security_result.length>20;
 }
 
 function eventId(event: Record<string, unknown>): string {
@@ -225,7 +204,8 @@ export class ChronicleAdapter implements SiemAdapter {
       if((error as Error).name==='AbortError') throw error;
       throw new SiemAdapterError('UPSTREAM_FAILURE', 'Chronicle returned malformed or oversized JSON');
     }
-    const events = (Array.isArray(body.events) ? body.events : []).slice(0,limit).map(allowlistEvent);
+    const retained = (Array.isArray(body.events) ? body.events : []).slice(0,limit);
+    const fieldTruncated=retained.some(eventFieldTruncated),events=retained.map(allowlistEvent);
     return {
       evidenceId: `EVD-${randomUUID()}`,
       incidentId: request.incidentId,
@@ -235,7 +215,8 @@ export class ChronicleAdapter implements SiemAdapter {
       provenance: {
         adapter: 'google-chronicle', adapterVersion: 'v1', queryHash,
         sourceInstance: instancePath, queriedAt: new Date().toISOString(), timeRange: request.timeRange,
-        resultCount: events.length, truncated: Boolean(body.moreDataAvailable) || (body.events?.length ?? 0)>limit, redaction: 'ALLOWLISTED_FIELDS_ONLY',
+        resultCount: events.length, truncated: fieldTruncated || Boolean(body.moreDataAvailable) || (body.events?.length ?? 0)>limit,
+        ...(fieldTruncated?{fieldTruncated:true}:{}),redaction: 'ALLOWLISTED_FIELDS_ONLY',
       },
     };
   }

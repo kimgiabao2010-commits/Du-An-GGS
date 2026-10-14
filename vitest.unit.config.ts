@@ -5,4 +5,5 @@ export default defineConfig({...source,test:{...source.test,include:[
   'packages/cli/tests/**/*.test.tsx','packages/guardrails/tests/**/*.test.ts',
   'packages/persistence/tests/**/*.test.ts','services/ide-reasoning/tests/**/*.test.ts',
   'services/siem-worker/tests/**/*.test.ts',
+  'apps/standalone/tests/**/*.test.ts',
 ]}});

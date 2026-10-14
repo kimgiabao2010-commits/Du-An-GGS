@@ -3,6 +3,7 @@ import { ContextBudgeter } from '@asq/guardrails';
 import { canonicalJson, sha256Canonical, socProfile, type CapabilityAction, type TaskTarget, type ModelCallGate } from '@asq/sdk';
 import { randomUUID } from 'node:crypto';
 import { providerUsage } from './model-usage.js';
+import { localConversation } from './local-conversation.js';
 
 export interface RouterDecision {
   agent: 'chat' | 'system' | TaskTarget;
@@ -70,6 +71,10 @@ export class LlmRouter {
     if (deterministic) return { agent: 'cli', action: deterministic.action, instruction: deterministic.instruction, parameters: {} };
     const siemIntent = deterministicSiemIntent(prompt);
     if (siemIntent) return siemIntent;
+
+    if (socProfile() !== 'staging' && process.env.GSS_LOCAL_CONVERSATION_ENABLED === 'true') {
+      return localConversation(prompt, gate);
+    }
 
     if (!this.openai) return {
       agent: 'system',

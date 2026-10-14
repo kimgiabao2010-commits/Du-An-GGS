@@ -21,6 +21,8 @@ export function serviceEnvironment(runtimeEnv, name) {
   delete env.GSS_WORKER_SPOOL_DIR;
   if (worker && runtimeEnv.GSS_DATA_DIR) env.GSS_WORKER_SPOOL_DIR = resolve(runtimeEnv.GSS_DATA_DIR, 'worker-spool', worker);
   if (name !== 'Control Plane') {
+    for(const key of Object.keys(env))if(key.startsWith('GSS_OFFLINE_INTEL_'))delete env[key];
+    delete env.GSS_INVESTIGATION_POLICY; delete env.GSS_SOC_SIEM_READ_ONLY_AUTHORIZED;
     delete env.GSS_LAB_OWN_DEVICE_AUTHORIZED; delete env.GSS_LAB_ALLOWED_SOURCES;
     delete env.GSS_MODEL_BUDGET_POLICY_JSON;
     delete env.DATABASE_URL; delete env.DATABASE_SSL; delete env.GSS_ARTIFACT_SIGNING_PRIVATE_KEY_BASE64;
@@ -32,6 +34,7 @@ export function serviceEnvironment(runtimeEnv, name) {
   if (name !== 'Control Plane' && name !== 'Command Center') delete env.GSS_REQUIRE_DURABLE_WORKLOAD_REVOCATION;
   if (name !== 'Control Plane' && name !== 'Web UI') delete env.GSS_UI_GATEWAY_TOKEN;
   if (name !== 'Command Center') {
+    for (const key of Object.keys(env)) if (key.startsWith('GSS_LOCAL_MODEL_') || key.startsWith('GSS_LOCAL_CONVERSATION_')) delete env[key];
     delete env.OPENAI_API_KEY; delete env.GROQ_API_KEY;
     for (const key of Object.keys(env)) if (key.startsWith('AWS_') || key.startsWith('GSS_S3_')) delete env[key];
   }

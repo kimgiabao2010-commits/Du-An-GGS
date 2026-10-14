@@ -11,6 +11,100 @@ async function identity(context: BrowserContext, role: string, expired = false, 
     url: 'http://127.0.0.1:3107', httpOnly: true, sameSite: 'Strict' }]);
 }
 
+test('investigation desk reads authority only and never fabricates unavailable state',async({page,context})=>{
+  await page.goto('/standalone/investigation');await expect(page).toHaveURL(/\/login\?next=/);
+  await identity(context,'SOC_ANALYST');await page.goto('/standalone/investigation');
+  await page.getByRole('button',{name:'Load investigation',exact:true}).click();
+  await expect(page.locator('#investigation-error')).toContainText('valid case ID');await expect(page.getByLabel('Case ID',{exact:true})).toBeFocused();
+  await page.getByLabel('Case ID',{exact:true}).fill('CASE-unavailable');await page.getByRole('button',{name:'Load investigation',exact:true}).click();
+  await expect(page.locator('#investigation-error')).toContainText('unavailable');await expect(page.locator('.investigation-snapshot')).toHaveCount(0);
+  await expect(page.getByRole('button',{name:/dispatch|approve|execute/i})).toHaveCount(0);
+  await identity(context,'AUDITOR');expect((await page.goto('/standalone/investigation'))?.status()).toBe(403);
+});
+
+test('investigation browser fixture retains contradictory references and responsive read-only hypothesis state',async({page,context},testInfo)=>{
+  await identity(context,'SOC_ANALYST');await page.setViewportSize({width:375,height:812});await page.emulateMedia({reducedMotion:'reduce'});
+  const caseId='CASE-fixture',runId='RUN-fixture',policyVersion='gss.soc-evidence.v1',time='2026-10-10T12:00:00Z';
+  const provenance={taskId:'TASK-fixture',evidenceRef:'EVIDENCE-fixture',source:'REPLAY_BROWSER_FIXTURE_NOT_LIVE',observedAt:time,artifactHash:'a'.repeat(64)};
+  const snapshot={run:{schemaVersion:'gss.investigation-run.v1',caseId,runId,policyVersion,state:'BLOCKED',frontierVersion:1,depth:1,
+    budget:{maxDepth:3,maxExternalQueries:3,maxCostMicros:0,deadlineAt:time},usage:{externalQueries:1,costMicros:0,costUnknown:true}},
+    frontier:{schemaVersion:'gss.evidence-frontier.v1',caseId,runId,version:1,updatedAt:time,
+      facts:['MATCHED','NO_MATCHES'].map((value,i)=>({factId:'FACT-'+i,key:'fixture.query',value,semanticType:'FACT',provenance:[provenance]})),
+      evidenceRefs:['EVIDENCE-fixture'],sourceObservationIds:['OBS-fixture'],contradictions:[{contradictionId:'CON-fixture',key:'fixture.query',factIds:['FACT-0','FACT-1']}]},
+    hypothesisPlan:{schemaVersion:'gss.hypothesis-plan.v1',planId:'HPLAN-fixture',caseId,runId,policyVersion,frontierVersion:1,
+      coverage:{schemaVersion:'gss.hypothesis-coverage.v1',scope:'ALLOWLISTED_STRUCTURED_FIELDS_ONLY',discoveredIndicators:20,evaluatedIndicators:16,omittedIndicators:4,
+        partialExtractionEvidenceIds:['EVIDENCE-fixture'],limitations:['CANDIDATE_LIMIT','PARTIAL_EXTRACTION']},
+      hypotheses:[{hypothesisId:'HYPO-fixture',statement:'Browser fixture only; not live SOC evidence.',status:'INSUFFICIENT_EVIDENCE',gap:'CONTRADICTORY',factIds:['FACT-0','FACT-1'],evidenceIds:['EVIDENCE-fixture']}],
+      selectedQuestionId:null,selectedFactIds:[],selectedEvidenceIds:[],decision:{schemaVersion:'gss.next-step.v1',decisionId:'DEC-fixture',caseId,runId,policyVersion,frontierVersion:1,
+        kind:'BLOCKED',reasonCode:'NO_SAFE_EVIDENCE_QUESTION',rationale:'No safe evidence action available; no verdict inferred.',createdAt:time}}};
+  await page.route('**/api/control/cases/CASE-fixture/frontier',route=>route.fulfill({json:snapshot}));
+  const source={taskId:'TASK-fixture',evidenceId:'EVIDENCE-fixture',artifactHash:'a'.repeat(64),projectionHash:'b'.repeat(64),
+    adapter:'google-chronicle',sourceKind:'CHRONICLE_UNATTESTED',sourceInstance:'BROWSER_FIXTURE_NOT_LIVE',queriedAt:time,collectedAt:null,
+    queryRange:{start:'2026-10-10T10:00:00Z',end:time},inputCount:2,omittedCount:0,uncertainTimeCount:1,
+    truncated:false,fieldTruncated:false,precision:'MILLISECOND_SORT_ONLY_RAW_PRESERVED'};
+  const timeline={schemaVersion:'gss.case-timeline.v1',caseId,snapshotHash:'c'.repeat(64),scope:'RETAINED_AUTHORITY_PROJECTIONS',
+    ordering:'UTC_MILLISECONDS_THEN_PROVENANCE_NOT_CAUSAL',completedQueryCount:1,unprojectedQueryCount:0,omittedProjectionCount:0,
+    inputEventCount:2,omittedEventCount:0,uncertainTimeCount:1,partial:false,entryLimit:200,sources:[source],entries:[
+      {taskId:source.taskId,evidenceId:source.evidenceId,artifactHash:source.artifactHash,projectionHash:source.projectionHash,
+        eventId:'fixture-timed-event',sourceIndex:0,rawTimestamp:'2026-10-10T17:00:00+07:00',occurredAt:'2026-10-10T10:00:00.000Z',timeStatus:'VALID'},
+      {taskId:source.taskId,evidenceId:source.evidenceId,artifactHash:source.artifactHash,projectionHash:source.projectionHash,
+        eventId:'fixture-untimed-event',sourceIndex:1,rawTimestamp:null,occurredAt:null,timeStatus:'MISSING'}]};
+  await page.route('**/api/control/cases/CASE-fixture/timeline',route=>route.fulfill({json:timeline}));
+  const entities={schemaVersion:'gss.case-entities.v1',caseId,snapshotHash:'e'.repeat(64),scope:'RETAINED_AUTHORITY_PROJECTIONS',
+    comparison:'EXACT_TYPED_VALUE_WITHIN_SOURCE_ONLY',completedQueryCount:1,unprojectedQueryCount:0,omittedProjectionCount:0,
+    inputEventCount:2,omittedEventCount:0,parsedMentionCount:3,omittedParsedMentionCount:0,partial:false,
+    sources:[{...source,caseId,queryHash:'a'.repeat(64),adapterVersion:'v1',redaction:'ALLOWLISTED_FIELDS_ONLY'}],
+    entries:timeline.entries.map((e,i)=>({...e,relationship:'CO_OBSERVED_ONLY',mentions:i===0?[
+      {type:'USER',field:'principal.user.userid',value:'alice',valueKey:'VALUE-'+'a'.repeat(64)},
+      {type:'IP',field:'target.ip',value:'203.0.113.2',valueKey:'VALUE-'+'b'.repeat(64)}]:[
+      {type:'USER',field:'principal.user.userid',value:'bob',valueKey:'VALUE-'+'c'.repeat(64)}]}))};
+  await page.route('**/api/control/cases/CASE-fixture/entities',route=>route.fulfill({json:entities}));
+  await page.route('**/api/control/cases/CASE-fixture/report',route=>route.fulfill({json:{schemaVersion:'gss.case-report.v1',caseId,
+    generatedAt:time,scope:'LATEST_INVESTIGATION_AND_BOUNDED_CASE_TIMELINE',analystReview:'REQUIRED',investigation:snapshot,timeline,entities,
+    limitations:['Browser contract fixture only'],reportHash:'d'.repeat(64)}}));
+  await page.goto('/standalone/investigation');await page.getByLabel('Case ID',{exact:true}).fill(caseId);
+  await page.getByRole('button',{name:'Load investigation',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Hypotheses & evidence gaps',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Investigation coverage',exact:true})).toBeVisible();await expect(page.getByText('Limits: CANDIDATE_LIMIT, PARTIAL_EXTRACTION',{exact:true})).toBeVisible();
+  await expect(page.getByText('INSUFFICIENT_EVIDENCE · Gap: CONTRADICTORY',{exact:true})).toBeVisible();
+  await page.getByText('Inspect all contradiction references',{exact:true}).click();
+  await expect(page.getByText('fixture.query: FACT-0, FACT-1',{exact:true})).toBeVisible();
+  await page.getByText('Provenance for FACT-0',{exact:true}).click();
+  const firstFact=page.locator('.investigation-facts > li').first();
+  await expect(firstFact.getByText(provenance.source,{exact:true})).toBeVisible();await expect(firstFact.getByText(provenance.artifactHash,{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Load case timeline',exact:true}).click();
+  await expect(page.locator('.case-timeline')).toContainText('2026-10-10T17:00:00+07:00');
+  await expect(page.locator('.case-timeline')).toContainText('Event time: MISSING');
+  const download=page.waitForEvent('download');await page.getByRole('button',{name:'Download timeline JSON',exact:true}).click();
+  expect((await download).suggestedFilename()).toBe('GSS-CASE-fixture-timeline.json');
+  const reportDownload=page.waitForEvent('download');await page.getByRole('button',{name:'Download case report',exact:true}).click();
+  expect((await reportDownload).suggestedFilename()).toBe('GSS-CASE-fixture-report.json');
+  await page.getByRole('button',{name:'Load entity evidence',exact:true}).click();
+  const groups=page.locator('.case-entities .investigation-facts > li');
+  await expect(groups).toHaveCount(2);await expect(groups.first()).toContainText('alice');await expect(groups.first()).toContainText('203.0.113.2');
+  await expect(groups.last()).toContainText('bob');await expect(groups.last()).not.toContainText('alice');
+  const entityDownload=page.waitForEvent('download');await page.getByRole('button',{name:'Download entity JSON',exact:true}).click();
+  expect((await entityDownload).suggestedFilename()).toBe('GSS-CASE-fixture-entities.json');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await page.screenshot({path:testInfo.outputPath('investigation-mobile.png'),fullPage:true});
+  await page.setViewportSize({width:812,height:375});
+  // Double actual computed desk text, including px-based styles; changing only root rem size would miss them.
+  await page.evaluate(()=>{
+    const sizes=Array.from(document.querySelectorAll<HTMLElement>('.investigation-console *')).map(node=>({node,size:parseFloat(getComputedStyle(node).fontSize)}));
+    sizes.forEach(({node,size})=>node.style.fontSize=(size*2)+'px');
+  });
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  expect(await page.locator('.investigation-snapshot').evaluate(el=>Array.from(el.querySelectorAll('p,dd,dt,summary,h2,h3')).every(node=>{
+    const rect=node.getBoundingClientRect();return rect.width===0 || (rect.left>=0 && rect.right<=window.innerWidth);
+  }))).toBe(true);
+});
+
+test('investigation rejects malformed authority payload without rendering a plan',async({page,context})=>{
+  await identity(context,'SECURITY_ADMIN');await page.route('**/api/control/cases/CASE-invalid/frontier',route=>route.fulfill({json:{run:{caseId:'CASE-invalid'},hypothesisPlan:{status:'SUPPORTED'}}}));
+  await page.goto('/standalone/investigation');await page.getByLabel('Case ID',{exact:true}).fill('CASE-invalid');await page.getByRole('button',{name:'Load investigation',exact:true}).click();
+  await expect(page.locator('#investigation-error')).toContainText('Invalid investigation contract');await expect(page.locator('.investigation-snapshot')).toHaveCount(0);
+});
+
 test('anonymous cannot render either protected workspace', async ({ page }) => {
   for (const path of ['/standalone', '/control/executions']) {
     await page.goto(path);

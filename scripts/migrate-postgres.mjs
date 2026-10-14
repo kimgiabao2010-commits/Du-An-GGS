@@ -3,11 +3,13 @@ import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { Pool } from 'pg';
 import 'dotenv/config';
+import { localDatabaseTarget } from './backup-local-postgres.mjs';
 
 if (!process.env.DATABASE_URL) {
   console.error('DATABASE_URL is required. Migrations were not run.');
   process.exit(1);
 }
+if (process.argv.includes('--local-only')) localDatabaseTarget(process.env.DATABASE_URL, process.env.GSS_RUNTIME_ENV ?? 'local');
 
 const migrationsDirectory = resolve('infra/postgres/migrations');
 const migrations = (await readdir(migrationsDirectory)).filter(file => file.endsWith('.sql')).sort();
@@ -15,6 +17,9 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process
 const client = await pool.connect();
 try {
   await client.query('BEGIN');
+  await client.query("SET LOCAL lock_timeout='30s'");
+  await client.query("SET LOCAL statement_timeout='60s'");
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('gss-schema-migrations'))");
   await client.query('CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())');
   await client.query('ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum TEXT');
   for (const migration of migrations) {

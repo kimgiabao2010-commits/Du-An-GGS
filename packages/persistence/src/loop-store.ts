@@ -15,6 +15,8 @@ import {
   type NextStepDecision,
   type NextStepProposal,
   type ObservationPack,
+  type HypothesisPlan,
+  SOC_EVIDENCE_POLICY_VERSION,
 } from '@asq/sdk';
 import { settleModelReservation } from './model-budget-store.js';
 
@@ -42,7 +44,12 @@ export interface CommitObservationResult {
   frontier: EvidenceFrontier;
   decision: NextStepDecision;
   outbox: ControlOutboxEvent;
+  hypothesisPlan?: HypothesisPlan;
 }
+
+/** In-process, Control Plane-owned policy. Never accepted from an HTTP body or model output. */
+export type HypothesisDecisionPolicy = (context: {run:InvestigationRun;frontier:EvidenceFrontier;
+  previousActionFingerprints:string[];now:string}) => HypothesisPlan;
 
 export interface ClaimedOutboxEvent {
   event: ControlOutboxEvent;
@@ -114,6 +121,7 @@ function stateForDecision(decision: NextStepDecision): InvestigationRunState {
 export async function commitObservationAndDecisionWithClient(
   client: PoolClient,
   input: CommitObservationInput,
+  hypothesisPolicy?: HypothesisDecisionPolicy,
 ): Promise<CommitObservationResult> {
   const locked = await client.query<RunRow>('SELECT * FROM investigation_runs WHERE run_id = $1 FOR UPDATE', [input.runId]);
   const row = locked.rows[0];
@@ -121,21 +129,28 @@ export async function commitObservationAndDecisionWithClient(
   const run = mapRun(row);
   if (run.caseId !== input.observation.caseId) throw new Error('Observation case does not match investigation run');
 
-  const replay = await client.query<{ payload: EvidenceFrontier }>(
-    'SELECT payload FROM evidence_frontiers WHERE run_id = $1 AND observation_id = $2',
+  const replay = await client.query<{ payload: EvidenceFrontier;payload_hash:string }>(
+    'SELECT payload,payload_hash FROM evidence_frontiers WHERE run_id = $1 AND observation_id = $2',
     [input.runId, input.observation.observationId]);
   if (replay.rows[0]) {
     const frontier = replay.rows[0].payload;
-    const decisionResult = await client.query<{ payload: NextStepDecision }>(
-      'SELECT payload FROM next_step_decisions WHERE run_id = $1 AND frontier_version = $2', [input.runId, frontier.version]);
+    if(sha256Canonical(frontier)!==replay.rows[0].payload_hash) throw new Error('Replay frontier integrity check failed');
+    const decisionResult = await client.query<{ payload: NextStepDecision;payload_hash:string }>(
+      'SELECT payload,payload_hash FROM next_step_decisions WHERE run_id = $1 AND frontier_version = $2', [input.runId, frontier.version]);
     const decision = decisionResult.rows[0]?.payload;
     if (!decision) throw new Error('Replay frontier exists without its atomic decision');
-    return { created: false, run, frontier, decision,
-      outbox: createControlOutboxEvent(decision, input.observation.taskId) };
+    if(sha256Canonical(decision)!==decisionResult.rows[0].payload_hash) throw new Error('Replay decision integrity check failed');
+    const hypothesisPlan=run.policyVersion===SOC_EVIDENCE_POLICY_VERSION ? await readHypothesisPlan(client,input.runId,frontier.version):undefined;
+    if(run.policyVersion===SOC_EVIDENCE_POLICY_VERSION && !hypothesisPlan) throw new Error('Replay hypothesis receipt missing');
+    if(hypothesisPlan && sha256Canonical(hypothesisPlan.decision)!==sha256Canonical(decision)) throw new Error('Replay hypothesis decision mismatch');
+    return { created: false, run, frontier, decision, ...(hypothesisPlan?{hypothesisPlan}:{}),
+      outbox: createControlOutboxEvent(decision, input.observation.taskId,input.traceparent,hypothesisPlan?.planId) };
   }
 
-  const latest = await client.query<{ payload: EvidenceFrontier }>(
-    'SELECT payload FROM evidence_frontiers WHERE run_id = $1 ORDER BY version DESC LIMIT 1', [input.runId]);
+  const latest = await client.query<{ payload: EvidenceFrontier;payload_hash:string }>(
+    'SELECT payload,payload_hash FROM evidence_frontiers WHERE run_id = $1 ORDER BY version DESC LIMIT 1', [input.runId]);
+  if(latest.rows[0] && sha256Canonical(latest.rows[0].payload)!==latest.rows[0].payload_hash) throw new Error('Current frontier integrity check failed');
+  if(run.frontierVersion!==(latest.rows[0]?.payload.version ?? 0)) throw new Error('Run frontier version mismatch');
   const previousActions = await client.query<{ fingerprint: string }>(`SELECT payload->'action'->>'fingerprint' AS fingerprint
     FROM next_step_decisions WHERE run_id = $1 AND payload ? 'action'`, [input.runId]);
   const now = input.now ?? new Date().toISOString();
@@ -148,14 +163,22 @@ export async function commitObservationAndDecisionWithClient(
     ...(latest.rows[0]?.payload ? { current: latest.rows[0].payload } : {}),
     now,
   });
-  const decision = planNextStep({
+  if(run.policyVersion===SOC_EVIDENCE_POLICY_VERSION && !hypothesisPolicy) throw new Error('SOC hypothesis authority policy unavailable');
+  const hypothesisPlan=hypothesisPolicy?.({run,frontier,now,
+    previousActionFingerprints:previousActions.rows.map(item=>item.fingerprint).filter(Boolean)});
+  if(hypothesisPlan && (hypothesisPlan.runId!==run.runId || hypothesisPlan.caseId!==run.caseId || hypothesisPlan.frontierVersion!==frontier.version ||
+    hypothesisPlan.policyVersion!==run.policyVersion || hypothesisPlan.decision.policyVersion!==run.policyVersion ||
+    hypothesisPlan.decision.runId!==run.runId || hypothesisPlan.decision.caseId!==run.caseId || hypothesisPlan.decision.frontierVersion!==frontier.version ||
+    hypothesisPlan.selectedFactIds.some(id=>!frontier.facts.some(f=>f.factId===id)) ||
+    hypothesisPlan.selectedEvidenceIds.some(id=>!frontier.evidenceRefs.includes(id)))) throw new Error('Hypothesis policy provenance mismatch');
+  const decision = hypothesisPlan?.decision ?? planNextStep({
     run,
     frontier,
     proposal: input.proposal,
     previousActionFingerprints: previousActions.rows.map(item => item.fingerprint).filter(Boolean),
     now,
   });
-  const outbox = createControlOutboxEvent(decision, input.observation.taskId, input.traceparent);
+  const outbox = createControlOutboxEvent(decision, input.observation.taskId, input.traceparent,hypothesisPlan?.planId);
   const frontierHash = sha256Canonical(frontier);
   const decisionHash = sha256Canonical(decision);
 
@@ -168,6 +191,11 @@ export async function commitObservationAndDecisionWithClient(
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
     [decision.decisionId, input.runId, run.caseId, frontier.version, decision.kind, decision.reasonCode,
       decision.action?.fingerprint ?? null, decision.policyVersion, JSON.stringify(decision), decisionHash, now]);
+  if(hypothesisPlan) await client.query(`INSERT INTO hypothesis_plans
+    (plan_id,run_id,case_id,frontier_version,policy_version,decision_id,payload,payload_hash,created_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [hypothesisPlan.planId,input.runId,run.caseId,frontier.version,hypothesisPlan.policyVersion,decision.decisionId,
+      JSON.stringify(hypothesisPlan),sha256Canonical(hypothesisPlan),now]);
   await client.query(`INSERT INTO control_outbox
     (event_id,aggregate_id,event_type,payload,event_hash,created_at)
     VALUES ($1,$2,$3,$4,$5,$6)`,
@@ -186,8 +214,88 @@ export async function commitObservationAndDecisionWithClient(
     (event_type,severity,actor_id,target_resource,action_payload,incident_id,event_hash)
     VALUES ('NEXT_STEP_DECIDED','INFO','gss-planner',$1,$2,$3,$4) ON CONFLICT (event_hash) WHERE event_hash IS NOT NULL DO NOTHING`,
     [input.runId, JSON.stringify({ observationId: input.observation.observationId, frontierVersion: frontier.version,
-      decisionId: decision.decisionId, kind: decision.kind, reasonCode: decision.reasonCode }), run.caseId, outbox.eventHash]);
-  return { created: true, run: mapRun(updatedRun), frontier, decision, outbox };
+      decisionId: decision.decisionId, kind: decision.kind, reasonCode: decision.reasonCode,
+      ...(hypothesisPlan?{hypothesisPlanId:hypothesisPlan.planId}: {}) }), run.caseId, outbox.eventHash]);
+  return { created: true, run: mapRun(updatedRun), frontier, decision, outbox, ...(hypothesisPlan?{hypothesisPlan}: {}) };
+}
+
+async function readHypothesisPlan(client:PoolClient | Pool,runId:string,version:number):Promise<HypothesisPlan | undefined> {
+  const result=await client.query<{
+    payload:HypothesisPlan|null;payload_hash:string;plan_id:string;case_id:string;policy_version:string;decision_id:string;
+    decision_payload:NextStepDecision|null;decision_hash:string;decision_run_id:string;decision_case_id:string;
+    decision_frontier_version:number;decision_policy_version:string;
+  }>(`SELECT CASE WHEN octet_length(h.payload::text)<=1500000 THEN h.payload END AS payload,
+    h.payload_hash,h.plan_id,h.case_id,h.policy_version,h.decision_id,
+    CASE WHEN octet_length(d.payload::text)<=1500000 THEN d.payload END AS decision_payload,
+    d.payload_hash AS decision_hash,d.run_id AS decision_run_id,d.case_id AS decision_case_id,
+    d.frontier_version AS decision_frontier_version,d.policy_version AS decision_policy_version
+    FROM hypothesis_plans h LEFT JOIN next_step_decisions d ON d.decision_id=h.decision_id
+    WHERE h.run_id=$1 AND h.frontier_version=$2`,[runId,version]);
+  const row=result.rows[0];if(!row) return undefined;
+  const plan=row.payload,decision=row.decision_payload;
+  const planIdentity=plan?(({planId:_id,...payload})=>sha256Canonical(payload))(plan):null;
+  if(!plan || !decision || sha256Canonical(plan)!==row.payload_hash ||
+    plan.planId!=='HPLAN-'+planIdentity?.slice(0,32) ||
+    plan.schemaVersion!=='gss.hypothesis-plan.v1' || plan.runId!==runId || plan.frontierVersion!==version ||
+    plan.planId!==row.plan_id || plan.caseId!==row.case_id || plan.policyVersion!==row.policy_version ||
+    !plan.decision || sha256Canonical(plan.decision)!==sha256Canonical(decision) ||
+    sha256Canonical(decision)!==row.decision_hash || decision.schemaVersion!=='gss.next-step.v1' ||
+    decision.decisionId!==row.decision_id || decision.runId!==runId || decision.caseId!==plan.caseId ||
+    decision.frontierVersion!==version || decision.policyVersion!==plan.policyVersion ||
+    row.decision_run_id!==runId || row.decision_case_id!==plan.caseId || row.decision_frontier_version!==version ||
+    row.decision_policy_version!==plan.policyVersion) {
+    throw Object.assign(new Error('Hypothesis plan integrity check failed'),{statusCode:409});
+  }
+  return plan;
+}
+
+/** Use a caller-owned repeatable-read transaction to avoid mixing frontier/run versions. */
+export async function readCaseInvestigationSnapshot(client: PoolClient, caseId: string) {
+  const row=(await client.query<RunRow>(
+    'SELECT * FROM investigation_runs WHERE case_id=$1 ORDER BY updated_at DESC,run_id LIMIT 1',[caseId])).rows[0];
+  if(!row)return null;
+  const run=mapRun(row);
+  const retained=(await client.query<{payload:EvidenceFrontier|null;payload_hash:string}>(
+    `SELECT CASE WHEN octet_length(payload::text)<=1500000 THEN payload END AS payload,payload_hash
+     FROM evidence_frontiers WHERE run_id=$1 AND version=$2`,[run.runId,run.frontierVersion])).rows[0];
+  if(!retained && run.frontierVersion===0)return {run,frontier:null};
+  if(!retained?.payload || sha256Canonical(retained.payload)!==retained.payload_hash ||
+    retained.payload.schemaVersion!=='gss.evidence-frontier.v1' ||
+    retained.payload.runId!==run.runId || retained.payload.caseId!==caseId || retained.payload.version!==run.frontierVersion) {
+    throw Object.assign(new Error('report_frontier_integrity_or_size_failed'),{statusCode:409});
+  }
+  const hypothesisPlan=run.policyVersion===SOC_EVIDENCE_POLICY_VERSION?
+    await readHypothesisPlan(client,run.runId,run.frontierVersion):undefined;
+  if(run.policyVersion===SOC_EVIDENCE_POLICY_VERSION && !hypothesisPlan) {
+    throw Object.assign(new Error('report_hypothesis_receipt_missing'),{statusCode:409});
+  }
+  const frontier=retained.payload;
+  const factIds=new Set(Array.isArray(frontier.facts)?frontier.facts.map(f=>f?.factId):[]);
+  const evidenceIds=new Set(Array.isArray(frontier.evidenceRefs)?frontier.evidenceRefs:[]);
+  if(hypothesisPlan && (hypothesisPlan.caseId!==caseId || hypothesisPlan.policyVersion!==run.policyVersion ||
+    !Array.isArray(frontier.facts) || !Array.isArray(frontier.evidenceRefs) ||
+    !Array.isArray(hypothesisPlan.selectedFactIds) || !Array.isArray(hypothesisPlan.selectedEvidenceIds) ||
+    !Array.isArray(hypothesisPlan.hypotheses) || hypothesisPlan.hypotheses.length>16 ||
+    hypothesisPlan.selectedFactIds.some(id=>!factIds.has(id)) ||
+    hypothesisPlan.selectedEvidenceIds.some(id=>!evidenceIds.has(id)) ||
+    hypothesisPlan.hypotheses.some(h=>!h || !Array.isArray(h.factIds) || !Array.isArray(h.evidenceIds) ||
+      h.factIds.some(id=>!factIds.has(id)) || h.evidenceIds.some(id=>!evidenceIds.has(id))))) {
+    throw Object.assign(new Error('report_plan_binding_failed'),{statusCode:409});
+  }
+  return {run,frontier:retained.payload,...(hypothesisPlan?{hypothesisPlan}:{})};
+}
+
+/** Authority desk reads one committed version even if a result arrives between SQL statements. */
+export async function readCaseInvestigation(pool:Pool,caseId:string) {
+  if(!/^[a-zA-Z0-9_-]{1,128}$/.test(caseId))throw Object.assign(new Error('invalid_case_id'),{statusCode:422});
+  const client=await pool.connect();
+  try {
+    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    await client.query("SET LOCAL statement_timeout='5s'");
+    const snapshot=await readCaseInvestigationSnapshot(client,caseId);
+    await client.query('COMMIT');return snapshot;
+  }catch(error){await client.query('ROLLBACK');throw error;}
+  finally{client.release();}
 }
 
 export class PostgresInvestigationLoopStore {
@@ -243,9 +351,11 @@ export class PostgresInvestigationLoopStore {
     return row.payload;
   }
 
-  public async commitObservationAndDecision(input: CommitObservationInput): Promise<CommitObservationResult> {
-    return this.transaction(client => commitObservationAndDecisionWithClient(client, input));
+  public async commitObservationAndDecision(input: CommitObservationInput, policy?:HypothesisDecisionPolicy): Promise<CommitObservationResult> {
+    return this.transaction(client => commitObservationAndDecisionWithClient(client, input,policy));
   }
+
+  public async getHypothesisPlan(runId:string,version:number):Promise<HypothesisPlan | undefined> {return readHypothesisPlan(this.pool,runId,version);}
 
   public async recordModelUsage(record: ModelUsageRecord): Promise<{ created: boolean }> {
     for (const [name, value] of Object.entries({

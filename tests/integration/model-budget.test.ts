@@ -38,6 +38,18 @@ async function reserve(i:ModelReservationInput) {
   const r=await cp.reserveModelCall(i);if(!r.enabled)throw new Error('fixture policy not enabled');return r;
 }
 describe.skipIf(!enabled)('model reservations on real isolated PostgreSQL (synthetic prices, no paid calls)',()=>{
+  it('supports explicit local-provider reservations while retaining unknown-cost blocking',async()=>{
+    const i={...await input(),provider:'llama.cpp' as const,model:'fixture-local-model',maxOutputTokens:512};
+    const localPolicy:ModelBudgetPolicy={version:'fixture-local-reservation.v1',caseBudgetMicros:200,models:[
+      {provider:'llama.cpp',model:i.model,reservationMicros:80,maxRequestBytes:32768,maxOutputTokens:512}]};
+    const local=new PostgresModelBudgetStore(db,localPolicy),r=await local.reserve(i);
+    if(!r.enabled)throw new Error('local reservation disabled');
+    const attemptId=randomUUID();expect(await local.start(r.reservationId,attemptId)).toEqual({started:true});
+    await ledger.recordModelUsage({...usage(i,r.reservationId,attemptId,null),status:'SUCCEEDED',routeReason:'local_CONVERSATION_experimental_v1'});
+    expect((await db.query('SELECT provider,state FROM model_call_reservations WHERE reservation_id=$1',[r.reservationId])).rows[0])
+      .toEqual({provider:'llama.cpp',state:'UNKNOWN'});
+    await expect(local.reserve({...i,usageId:randomUUID()})).rejects.toThrow('model_budget_uncertain');
+  });
   it('serializes concurrent reservations against held+spent budget',async()=>{
     const i=await input();
     const results=await Promise.allSettled(Array.from({length:8},()=>reserve({...i,usageId:randomUUID()})));

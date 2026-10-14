@@ -22,6 +22,8 @@ export interface ChronicleEvidenceProvenance {
   timeRange: { start: string; end: string };
   resultCount: number;
   truncated: boolean;
+  /** Optional, backward-compatible indication of adapter field-array loss, distinct from event pagination. */
+  fieldTruncated?: boolean;
   redaction: 'ALLOWLISTED_FIELDS_ONLY';
 }
 
@@ -92,7 +94,9 @@ export function isInvestigationEvidence(
     Date.parse(provenance.timeRange.start) >= Date.parse(provenance.timeRange.end) ||
     !Number.isSafeInteger(provenance.resultCount) || Number(provenance.resultCount) < 0 ||
     provenance.resultCount !== evidence.events.length || typeof provenance.truncated !== 'boolean' ||
-    provenance.redaction !== 'ALLOWLISTED_FIELDS_ONLY') return false;
+    provenance.redaction !== 'ALLOWLISTED_FIELDS_ONLY' ||
+    (provenance.fieldTruncated !== undefined && (typeof provenance.fieldTruncated !== 'boolean' ||
+      provenance.fieldTruncated && !provenance.truncated))) return false;
   if (provenance.adapter === 'lab-windows-events') {
     const lab = provenance as Partial<LabEvidenceProvenance>;
     if (lab.schemaVersion !== 'gss.evidence-provenance.v2' || typeof lab.sourceKind !== 'string' || !['LAB_LIVE', 'REPLAY'].includes(lab.sourceKind) ||

@@ -69,8 +69,8 @@ describe('PostgreSQL investigation loop transaction', () => {
     const query = vi.fn(async (sql: unknown) => {
       const text = sqlText(sql);
       if (text.startsWith('SELECT * FROM investigation_runs')) return { rows: [runRow], rowCount: 1 };
-      if (text.includes('observation_id = $2')) return { rows: [{ payload: frontier }], rowCount: 1 };
-      if (text.includes('FROM next_step_decisions')) return { rows: [{ payload: decision }], rowCount: 1 };
+      if (text.includes('observation_id = $2')) return { rows: [{ payload: frontier,payload_hash:sha256Canonical(frontier) }], rowCount: 1 };
+      if (text.includes('FROM next_step_decisions')) return { rows: [{ payload: decision,payload_hash:sha256Canonical(decision) }], rowCount: 1 };
       throw new Error(`Unexpected replay query: ${text}`);
     });
     const result = await commitObservationAndDecisionWithClient({ query } as unknown as PoolClient, {
@@ -111,5 +111,10 @@ describe('PostgreSQL investigation loop transaction', () => {
 
     query.mockResolvedValueOnce({ rows: [{ payload: frontier, payload_hash: sha256Canonical(frontier) }], rowCount: 1 });
     await expect(store.getFrontier('run-1', 1)).resolves.toEqual(frontier);
+  });
+  it('rejects a hypothesis receipt whose payload does not match its immutable digest',async()=>{
+    const query=vi.fn().mockResolvedValue({rows:[{payload:{runId:'run-1',frontierVersion:1},payload_hash:'0'.repeat(64)}]});
+    const store=new PostgresInvestigationLoopStore({query} as any);
+    await expect(store.getHypothesisPlan('run-1',1)).rejects.toThrow('integrity');
   });
 });

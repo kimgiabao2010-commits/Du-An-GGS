@@ -1,6 +1,7 @@
 export * from './investigation-store.js';
 export * from './runtime-store.js';
 export * from './artifact-store.js';
+export * from './artifact-recovery.js';
 export * from './loop-store.js';
 export * from './worker-delivery-store.js';
 export * from './control-state-store.js';
@@ -11,3 +12,6 @@ export * from './model-budget-store.js';
 export * from './worker-presence-store.js';
 export * from './workload-revocation-store.js';
 export * from './lab-telemetry-store.js';
+export * from './case-timeline-store.js';
+export * from './case-report-store.js';
+export * from './case-entities-store.js';

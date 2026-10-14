@@ -64,6 +64,24 @@ test('only Control Plane receives the authoritative model budget policy',()=>{
     assert.equal(serviceEnvironment(parent,name).GSS_MODEL_BUDGET_POLICY_JSON,name==='Control Plane'?'fixture-policy':undefined);
   }
 });
+test('only Control Plane receives hypothesis policy activation and SIEM authorization',()=>{
+  const parent={GSS_INVESTIGATION_POLICY:'gss.soc-evidence.v1',GSS_SOC_SIEM_READ_ONLY_AUTHORIZED:'true'};
+  for(const name of ['Control Plane','Command Center','CLI worker','IDE agent','SIEM worker','Web UI']) {
+    for(const key of Object.keys(parent)) assert.equal(serviceEnvironment(parent,name)[key],name==='Control Plane'?parent[key]:undefined);
+  }
+});
+
+test('local model configuration reaches only the conversation service',()=>{
+  const parent={GSS_LOCAL_CONVERSATION_ENABLED:'true',GSS_LOCAL_MODEL_URL:'http://127.0.0.1:8080/v1/chat/completions',GSS_LOCAL_CONVERSATION_MODEL:'fixture'};
+  for(const name of ['Control Plane','Command Center','CLI worker','IDE agent','SIEM worker','Web UI']) {
+    for(const key of Object.keys(parent)) assert.equal(serviceEnvironment(parent,name)[key],name==='Command Center'?parent[key]:undefined);
+  }
+});
+test('offline-intel path and reviewed pin reach only Control Plane, never browser/workers',()=>{
+  const parent={GSS_OFFLINE_INTEL_CATALOG_FILE:'private.json',GSS_OFFLINE_INTEL_CATALOG_SHA256:'fixture-pin'};
+  for(const name of ['Control Plane','Command Center','CLI worker','IDE agent','SIEM worker','Web UI'])
+    for(const key of Object.keys(parent))assert.equal(serviceEnvironment(parent,name)[key],name==='Control Plane'?parent[key]:undefined);
+});
 test('public workload pin policy remains server-only, not in workers or Web UI',()=>{
   const parent={GSS_TLS_WORKLOAD_POLICY_FILE:'operator-owned-public-policy.json',GSS_REQUIRE_DURABLE_WORKLOAD_REVOCATION:'true'};
   for(const name of ['Control Plane','Command Center','CLI worker','IDE agent','SIEM worker','Web UI']) {
