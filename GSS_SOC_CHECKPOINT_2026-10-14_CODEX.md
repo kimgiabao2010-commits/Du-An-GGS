@@ -2,6 +2,8 @@
 
 Usage85%/300 minutes reached14:12:01 Asia/Bangkok. New source frozen; both continuation/checkpoint automations confirmed PAUSED at14:14, prompts/schedules preserved. User authorized save/GITLOG/commit/non-force push. Publication pending reviewed index/remote checks; later receipt/Git history records the actual SHA. Main base/origin main match `305b1dbf0ae0ad05e6853c8c94849b0f290f6e33`; origin `https://github.com/kimgiabao2010-commits/Du-An-GGS.git`. No reset/rebase/force/old checkpoint duplication.
 
+Publication **PUSHED / REMOTE VERIFIED at14:22:56 Bangkok**: source WIP commit [373e6fb2ba26d95b32d07518f69d9b7f18ee8ddf](https://github.com/kimgiabao2010-commits/Du-An-GGS/commit/373e6fb2ba26d95b32d07518f69d9b7f18ee8ddf).103 explicit files matched current raw review hashes and normalized Git index objects before commit; no broad add, private/generated files excluded. Both paused automations confirmed; usage93%, no reset. This supersedes the preparation state above. This final documentation receipt changes no runtime source, and its own SHA is recorded by Git history/final response. Release remains engineering WIP/BLOCKED; remote CI NOT RUN.
+
 ## Verified engineering snapshot
 
 - PASS401 tests:176 unit/196 real isolated-PG integration/12 environment/17 browser; one live-batch integration test skipped because no authorized `GSS_LAB_LIVE_BATCH`.

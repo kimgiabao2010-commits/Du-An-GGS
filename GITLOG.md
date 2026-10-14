@@ -1,5 +1,11 @@
 # GSS Gitlog - Codex
 
+## 2026-10-14 - checkpoint PUBLISHED and remote SHA verified
+
+Implementation WIP commit `373e6fb2ba26d95b32d07518f69d9b7f18ee8ddf` (`feat: checkpoint evidence-driven SOC lab workflows (WIP)`) normal-pushed to origin/main and exact remote equality verified at14:22:56 Bangkok.103 explicit reviewed files; all103 current raw hashes and Git-normalized staged object identities matched review, no token/private-key heuristic hits, staged diff whitespace PASS, frozen runtime fingerprint still `5ce6528034c6b623797b9861411881d48850cacb4038a209aba9a094b994663c`.401-test local receipt, selected artifact restore and native unpromoted CPU inference retain distinct scopes; release BLOCKED and remote CI NOT RUN. This documentation-only publication receipt records the implementation SHA; its own SHA is in Git history/final handoff.
+
+Private `.env`, supplied DOCX/PDF, debug.log, raw data/backups/artifacts/models/keys and tracked generated dist/cache excluded and preserved. Working tree intentionally retains only those excluded files; no source changes left out of implementation snapshot. Both automations remain PAUSED. Usage93%/300 minutes, ordinary allowed, no reset/model override/paid API. [Final checkpoint](GSS_SOC_CHECKPOINT_2026-10-14_CODEX.md), [work session](GSS_SOC_WORK_SESSION_2026-10-14_CODEX.md), [source proof](GSS_SOC_VERIFICATION_2026-10-14_RECOVERY_CODEX.json).
+
 ## 2026-10-14 - 85% usage checkpoint frozen, normal publication pending
 
 At14:12:01 Bangkok85%/300 minutes reached; both existing automations PAUSED at14:14 with fields preserved. User-authorized explicit103-file WIP snapshot prepared on main/base305b1db; current remote main matched before publication. Final401-test source proof, actual selected artifact/native CPU inference separately scoped; whole SOC/staging roadmap BLOCKED. [Checkpoint](GSS_SOC_CHECKPOINT_2026-10-14_CODEX.md). No new feature/reset/model override/private/generated upload. Source/index/remote equality must pass before reporting commit/push success; later publication receipt supersedes this pending entry.
