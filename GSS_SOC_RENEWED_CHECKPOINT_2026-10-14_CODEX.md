@@ -46,3 +46,11 @@ Follow [24-gate tracker](GSS_SOC_COMPLETION_TRACKER_CODEX.md) and [product roadm
 ## Publication safety
 
 Only explicit reviewed source/tests/migration/config/docs and sanitized receipts. Exclude/preserve private `.env`, API/worker/native keys, credentials, private DOCX/PDF, raw telemetry/evidence/artifacts/models/licenses/backups/logs, debug.log, tracked dist and `.turbo` caches. No user data deletion, old checkpoint duplication, remote overwrite, paid provider calls, remediation, SIEM writeback, merge or deployment.
+
+## Checkpoint đã xuất bản
+
+**PASS — GitHub đã nhận commit `b0ad7d2eb2bcc051c7a46ed7a88ba4bbd2b3b3a6`**, push thường lên `main`; kiểm tra remote SHA trùng HEAD lúc **18:33:18 ngày14/10/2026 Bangkok**. [Commit triển khai WIP](https://github.com/kimgiabao2010-commits/Du-An-GGS/commit/b0ad7d2eb2bcc051c7a46ed7a88ba4bbd2b3b3a6).45 file được review và stage tường minh, hash file/index trùng snapshot đã rà soát; không upload dữ liệu riêng hoặc file generated. Kiểm tra local427 test vẫn gắn với fingerprint trên; remote CI NOT RUN.
+
+Usage82%/300phút, còn18% tại lúc xác nhận; ordinary usage allowed. Chốt sớm81%, không báo sai đã cạn hoặc đã đạt85%, không dùng reset/mua credit/đổi model. Sau push đã tạm dừng cả hai automation, giữ nguyên cấu hình để không sửa tiếp bản mã vừa chốt. GITLOG/work-session được cập nhật; commit tiếp theo chỉ ghi receipt tài liệu, SHA của receipt xuất hiện trong Git history/báo cáo cuối, không tự tham chiếu SHA chưa tồn tại.
+
+**Chưa hoàn thành toàn bộ dự án.**13 cổng còn lại được liệt kê ở trên; các bước E packaging/recovery có thể triển khai độc lập tiếp, còn SOC corpus/Chronicle/Linux/pilot cần prerequisite thật. Không thay dữ liệu/approval con người bằng fixture hoặc output AI để nâng phần trăm.

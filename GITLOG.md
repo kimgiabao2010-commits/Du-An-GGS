@@ -1,5 +1,11 @@
 # GSS Gitlog - Codex
 
+## 2026-10-14 - renewed checkpoint PUBLISHED / remote SHA verified
+
+Implementation WIP `b0ad7d2eb2bcc051c7a46ed7a88ba4bbd2b3b3a6` normal-pushed to origin/main, remote SHA exactly matched HEAD at18:33:18Bangkok.45 explicit reviewed files; raw hashes/Git-normalized index matched, staged whitespace PASS, private-key/token heuristic no matches (not independent secret scan). Frozen427-test fingerprint `9466cbc5c3d1af4d759b59b0f51f8db02201c633b899a29c5dd8df7032f0854e` preserved. Actual native Conversation and public ATTACK receipts remain separately scoped; whole SOC/Chronicle/sandbox/pilot release BLOCKED,11/24=45.8%. [Implementation commit](https://github.com/kimgiabao2010-commits/Du-An-GGS/commit/b0ad7d2eb2bcc051c7a46ed7a88ba4bbd2b3b3a6), [renewed checkpoint](GSS_SOC_RENEWED_CHECKPOINT_2026-10-14_CODEX.md).
+
+Proactive checkpoint started81%, completed implementation publication82%/300minutes, ordinary allowed; did not consume reset credits/change model/buy services/wait to100%. Both existing heartbeats PAUSED with names/prompts/schedules/thread preserved after verified push; no more feature scope this window. Private `.env`, user runtime/tasks, DOCX/PDF, raw data/models/artifacts/backups/logs and tracked dist/cache excluded/preserved. This docs-only receipt records implementation SHA; its own commit/SHA is in history/final handoff. Remote CI and external gates NOT RUN, no production claim.
+
 ## 2026-10-14 - proactive renewed81%-usage checkpoint prepared
 
 At18:31:16Bangkok81%/300minutes, ordinary allowed; checkpoint early because frozen427-test verification and45-file source/index/secret-boundary review complete, reserve capacity for publication/recovery, not artificially consume to85%. No claim85% was reached. main/origin/remote priorf18aaa5 verified; source fingerprint still `9466cbc5c3d1af4d759b59b0f51f8db02201c633b899a29c5dd8df7032f0854e`. Commit/normal push/remote equality pending. [Renewed report](GSS_SOC_RENEWED_CHECKPOINT_2026-10-14_CODEX.md). Whole SOC release BLOCKED,11/24=45.8%, private/generated data excluded/preserved; no reset/model override/paid call/remediation. Both heartbeats pause after this verified checkpoint.
